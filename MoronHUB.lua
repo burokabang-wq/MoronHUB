@@ -387,8 +387,11 @@ end
 -- DISCONNECT / ERROR WEBHOOK NOTIFICATION
 -- ══════════════════════════════════════════════════════════════
 local SendDisconnectWebhook
+local _disconnectWebhookSent = false
 SendDisconnectWebhook = function(disconnectReason)
     if not S.WebhookEnabled or S.WebhookURL == "" then return end
+    if _disconnectWebhookSent then return end
+    _disconnectWebhookSent = true
     
     pcall(function()
         local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
@@ -1131,12 +1134,25 @@ local function DoRemoveAll()
             if hasBrainrot then
                 local sn = tonumber(string.match(slot.Name, "%d+"))
                 if sn then
-                    -- Try multiple remove methods
+                    -- Based on Luxy's place/remove mechanism, placing empty tool or firing empty slot removes it
+                    -- Another known method is NetworkModule.FireServer("RemoveBrainrot", sn) or ("Remove", sn)
+                    pcall(function() 
+                        if NetworkModule and NetworkModule.FireServer then
+                            NetworkModule.FireServer("Remove", sn)
+                        end
+                    end)
                     pcall(function() interactRemote:FireServer("Remove", sn) end)
-                    pcall(function() interactRemote:FireServer("RemoveBrainrot", sn) end)
-                    pcall(function() interactRemote:FireServer(sn) end)
+                    
+                    -- Second attempt if first fails
+                    pcall(function() 
+                        if NetworkModule and NetworkModule.FireServer then
+                            NetworkModule.FireServer("Unequip", sn)
+                        end
+                    end)
+                    pcall(function() interactRemote:FireServer("Unequip", sn) end)
+                    
                     removed = removed + 1
-                    task.wait(0.3)
+                    task.wait(0.4)
                 end
             end
         end
@@ -2092,7 +2108,7 @@ Title.TextXAlignment = Enum.TextXAlignment.Left
 local VerLbl = Instance.new("TextLabel", Header)
 VerLbl.Size = UDim2.new(0, 40, 0, 16); VerLbl.Position = UDim2.new(0, 110, 0.5, -8)
 VerLbl.BackgroundColor3 = Color.Primary; VerLbl.BorderSizePixel = 0
-VerLbl.Text = "v1.0"; VerLbl.TextColor3 = Color.Text; VerLbl.Font = Enum.Font.GothamBold; VerLbl.TextSize = 9
+VerLbl.Text = "v1.2"; VerLbl.TextColor3 = Color.Text; VerLbl.Font = Enum.Font.GothamBold; VerLbl.TextSize = 9
 Instance.new("UICorner", VerLbl).CornerRadius = UDim.new(0, 4)
 
 local CloseBtn = Instance.new("TextButton", Header)
