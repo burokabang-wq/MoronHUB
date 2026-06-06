@@ -188,7 +188,18 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         }
         local embedColor = rarColors[brRarity] or 5793266
         
-        -- Build embed (SAME FORMAT AS v1.0 that WORKS on Delta)
+        -- Get Roblox avatar URL (CDN direct link)
+        local playerAvatar = ""
+        pcall(function()
+            local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
+                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420
+            )
+            if content and content ~= "" and isReady then
+                playerAvatar = content
+            end
+        end)
+        
+        -- Build embed
         local embed = {
             title = "GOOD ROLL!",
             description = "A valuable brainrot has been collected!",
@@ -206,9 +217,18 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
             footer = {text = "Moron HUB v1.2 | Smart Farm"}
         }
         
-        local payload = HttpService:JSONEncode({
-            embeds = {embed}
-        })
+        -- Add avatar as author icon if available
+        if playerAvatar ~= "" then
+            embed.author = {name = playerName, icon_url = playerAvatar}
+        end
+        
+        -- Build payload with avatar
+        local payloadTable = {embeds = {embed}}
+        if playerAvatar ~= "" then
+            payloadTable.avatar_url = playerAvatar
+        end
+        
+        local payload = HttpService:JSONEncode(payloadTable)
         
         -- Send HTTP request
         local httpReq = request or http_request or (syn and syn.request) or (http and http.request) or fluxus_request
