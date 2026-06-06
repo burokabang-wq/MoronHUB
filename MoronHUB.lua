@@ -40,6 +40,7 @@ while not LP do LP = Players.LocalPlayer; task.wait(0.1) end
 local S = {
     Running = true,
     Conns = {},
+    SessionStart = os.time(),
     -- Smart Farm
     SmartFarm = false,
     TargetCPS = 5000,
@@ -151,21 +152,28 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
     if not S.WebhookEnabled or S.WebhookURL == "" then return end
     
     pcall(function()
-        local timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
-        local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
+        -- GMT+7 (WIB Indonesia) timestamp
+        local utcTime = os.time()
+        local wibTime = utcTime + (7 * 3600)
+        local timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ", wibTime)
+        local timeDisplay = os.date("!%d/%m/%Y %H:%M:%S WIB", wibTime)
         
-        -- Inline number formatter (FmtNum not available yet at this scope)
+        -- Player info
+        local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
+        local playerAvatar = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=150&height=150&format=png"
+        
+        -- Number formatter
         local function FormatCPS(n)
             if type(n) ~= "number" then return tostring(n or 0) end
             if n < 1000 then return tostring(math.floor(n)) end
-            local suffixes = {"K","M","B","T","Q"}
+            local suffixes = {"K","M","B","T","Q","Qi","Sx","Sp","Oc","No","Dc"}
             local i = math.floor(math.log10(n) / 3)
             if i < 1 then return tostring(math.floor(n)) end
             local sf = suffixes[i] or ("e"..i*3)
-            return string.format("%.1f%s", n / (10^(i*3)), sf)
+            return string.format("%.2f%s", n / (10^(i*3)), sf)
         end
         
-        -- Color based on rarity
+        -- Color based on rarity (Discord embed color)
         local rarColors = {
             Common = 11842740, Rare = 1997055, Epic = 10696166, Legendary = 16753920,
             Mythic = 16711780, Godly = 16766720, Secret = 65480, Divine = 16777060,
@@ -174,28 +182,78 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         }
         local embedColor = rarColors[brRarity] or 5793266
         
-        local mutText = (brMutation and brMutation ~= "None" and brMutation ~= "") and brMutation or "No Mutation"
+        -- Rarity emoji
+        local rarEmoji = {
+            Common = "\226\154\170\239\184\143", Rare = "\240\159\148\181", Epic = "\240\159\146\156",
+            Legendary = "\240\159\148\165", Mythic = "\240\159\140\159", Godly = "\226\156\168",
+            Secret = "\240\159\164\171", Divine = "\240\159\146\142", Hacked = "\240\159\146\128",
+            OG = "\240\159\145\145", Celestial = "\240\159\140\140", Exclusive = "\240\159\145\145",
+            Eternal = "\226\153\190\239\184\143"
+        }
+        local rEmoji = rarEmoji[brRarity] or "\240\159\142\178"
         
+        -- Mutation display
+        local mutText = (brMutation and brMutation ~= "None" and brMutation ~= "") and brMutation or "None"
+        local mutDisplay = mutText ~= "None" and ("\240\159\167\172 " .. mutText) or "\226\157\140 No Mutation"
+        
+        -- Brainrot image (thumbnail for embed)
+        local brainrotImage = ""
+        pcall(function()
+            local lookup = CPSLookup[brName]
+            if lookup and lookup.image and lookup.image ~= "" then
+                local imgId = lookup.image
+                -- Convert rbxassetid to Roblox CDN URL for Discord
+                local assetId = string.match(imgId, "%d+")
+                if assetId then
+                    brainrotImage = "https://www.roblox.com/asset-thumbnail/image?assetId=" .. assetId .. "&width=150&height=150&format=png"
+                end
+            end
+        end)
+        
+        -- Server info
+        local serverInfo = "PlaceId: " .. tostring(game.PlaceId) .. " | JobId: " .. string.sub(tostring(game.JobId), 1, 8) .. "..."
+        local playerCount = "?"
+        pcall(function() playerCount = tostring(#game:GetService("Players"):GetPlayers()) .. "/" .. tostring(game:GetService("Players").MaxPlayers) end)
+        
+        -- Session stats
+        local sessionTime = "?"
+        pcall(function()
+            local elapsed = os.time() - (S.SessionStart or os.time())
+            local mins = math.floor(elapsed / 60)
+            local secs = elapsed % 60
+            sessionTime = string.format("%dm %ds", mins, secs)
+        end)
+        
+        -- Build professional embed
         local embed = {
-            title = "\240\159\142\137 GOOD ROLL!",
-            description = "A valuable brainrot has been collected!",
+            author = {
+                name = playerName,
+                icon_url = playerAvatar
+            },
+            title = rEmoji .. " GOOD ROLL — " .. (brName or "Unknown"),
+            description = "```\n" .. (brName or "Unknown") .. " [" .. (brRarity or "?") .. "]\nCPS: " .. FormatCPS(brCPS) .. "/s | Mutation: " .. mutText .. "\n```",
             color = embedColor,
+            thumbnail = (brainrotImage ~= "") and {url = brainrotImage} or nil,
             fields = {
                 {name = "\240\159\167\160 Brainrot", value = "`" .. (brName or "Unknown") .. "`", inline = true},
                 {name = "\240\159\146\142 Rarity", value = "`" .. (brRarity or "Unknown") .. "`", inline = true},
                 {name = "\240\159\167\172 Mutation", value = "`" .. mutText .. "`", inline = true},
-                {name = "\240\159\146\176 CPS", value = "`" .. FormatCPS(brCPS) .. "/s`", inline = true},
-                {name = "\226\156\133 Reason", value = "`" .. (reason or "CPS Target Met") .. "`", inline = false},
-                {name = "\240\159\145\164 Player", value = "`" .. playerName .. "`", inline = true},
-                {name = "\240\159\147\138 Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. "`", inline = true},
+                {name = "\240\159\146\176 CPS/s", value = "`" .. FormatCPS(brCPS) .. "`", inline = true},
+                {name = "\240\159\147\141 Reason", value = "`" .. (reason or "CPS Target Met") .. "`", inline = true},
+                {name = "\226\143\176 Waktu (WIB)", value = "`" .. timeDisplay .. "`", inline = true},
+                {name = "\240\159\147\138 Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. " | Time: " .. sessionTime .. "`", inline = false},
+                {name = "\240\159\140\144 Server", value = "`" .. serverInfo .. " | Players: " .. playerCount .. "`", inline = false},
             },
-            footer = {text = "Moron HUB v1.2 | Smart Farm"},
-            timestamp = timestamp
+            footer = {
+                text = "Moron HUB v1.2 | Smart Farm System",
+                icon_url = playerAvatar
+            },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
         }
         
         local payload = HttpService:JSONEncode({
-            username = "Moron HUB",
-            avatar_url = "https://tr.rbxcdn.com/30DAY-AvatarHeadshot-" .. LP.UserId .. "-150x150.png",
+            username = "Moron HUB \240\159\142\175",
+            avatar_url = playerAvatar,
             embeds = {embed}
         })
         
