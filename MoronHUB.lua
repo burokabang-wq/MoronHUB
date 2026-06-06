@@ -152,14 +152,6 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
     if not S.WebhookEnabled or S.WebhookURL == "" then return end
     
     pcall(function()
-        -- GMT+7 (WIB Indonesia) timestamp
-        local utcTime = os.time()
-        local wibTime = utcTime + (7 * 3600)
-        local timeDisplay = os.date("!%d/%m/%Y %H:%M:%S WIB", wibTime)
-        
-        -- Player info
-        local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
-        
         -- Number formatter
         local function FormatCPS(n)
             if type(n) ~= "number" then return tostring(n or 0) end
@@ -168,10 +160,26 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
             local i = math.floor(math.log10(n) / 3)
             if i < 1 then return tostring(math.floor(n)) end
             local sf = suffixes[i] or ("e"..i*3)
-            return string.format("%.2f%s", n / (10^(i*3)), sf)
+            return string.format("%.1f%s", n / (10^(i*3)), sf)
         end
         
-        -- Color based on rarity (Discord embed color)
+        -- Mutation display
+        local mutText = (brMutation and brMutation ~= "None" and brMutation ~= "") and brMutation or "None"
+        
+        -- CPS formatted
+        local cpsText = FormatCPS(brCPS) .. "/s"
+        
+        -- Player info
+        local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
+        
+        -- Reason text
+        local reasonText = reason or ("CPS " .. FormatCPS(brCPS) .. "/s >= Target")
+        
+        -- GMT+7 time
+        local wibTime = os.time() + (7 * 3600)
+        local timeText = os.date("!%d/%m/%Y %H:%M:%S WIB", wibTime)
+        
+        -- Color based on rarity
         local rarColors = {
             Common = 11842740, Rare = 1997055, Epic = 10696166, Legendary = 16753920,
             Mythic = 16711780, Godly = 16766720, Secret = 65480, Divine = 16777060,
@@ -180,104 +188,38 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         }
         local embedColor = rarColors[brRarity] or 5793266
         
-        -- Rarity emoji
-        local rarEmoji = {
-            Common = "\226\154\170\239\184\143", Rare = "\240\159\148\181", Epic = "\240\159\146\156",
-            Legendary = "\240\159\148\165", Mythic = "\240\159\140\159", Godly = "\226\156\168",
-            Secret = "\240\159\164\171", Divine = "\240\159\146\142", Hacked = "\240\159\146\128",
-            OG = "\240\159\145\145", Celestial = "\240\159\140\140", Exclusive = "\240\159\145\145",
-            Eternal = "\226\153\190\239\184\143"
-        }
-        local rEmoji = rarEmoji[brRarity] or "\240\159\142\178"
-        
-        -- Mutation display
-        local mutText = (brMutation and brMutation ~= "None" and brMutation ~= "") and brMutation or "None"
-        
-        -- Brainrot image (thumbnail for embed)
-        local brainrotImage = nil
-        pcall(function()
-            local lookup = CPSLookup[brName]
-            if lookup and lookup.image and lookup.image ~= "" then
-                local assetId = string.match(lookup.image, "%d+")
-                if assetId then
-                    brainrotImage = "https://assetdelivery.roblox.com/v1/asset/?id=" .. assetId
-                end
-            end
-        end)
-        
-        -- Server info
-        local serverInfo = "PlaceId: " .. tostring(game.PlaceId) .. " | JobId: " .. string.sub(tostring(game.JobId), 1, 8) .. "..."
-        local playerCount = "?"
-        pcall(function() playerCount = tostring(#game:GetService("Players"):GetPlayers()) .. "/" .. tostring(game:GetService("Players").MaxPlayers) end)
-        
-        -- Session stats
-        local sessionTime = "?"
-        pcall(function()
-            local elapsed = os.time() - (S.SessionStart or os.time())
-            local mins = math.floor(elapsed / 60)
-            local secs = elapsed % 60
-            sessionTime = string.format("%dm %ds", mins, secs)
-        end)
-        
-        -- Build embed (NO avatar URLs - only brainrot image)
+        -- Build embed (SAME FORMAT AS v1.0 that WORKS on Delta)
         local embed = {
-            author = {name = playerName},
-            title = rEmoji .. " GOOD ROLL \226\128\148 " .. (brName or "Unknown"),
-            description = "```\n" .. (brName or "Unknown") .. " [" .. (brRarity or "?") .. "]\nCPS: " .. FormatCPS(brCPS) .. "/s | Mutation: " .. mutText .. "\n```",
+            title = "GOOD ROLL!",
+            description = "A valuable brainrot has been collected!",
             color = embedColor,
-            thumbnail = brainrotImage and {url = brainrotImage} or nil,
             fields = {
-                {name = "Brainrot", value = "`" .. (brName or "Unknown") .. "`", inline = true},
-                {name = "Rarity", value = "`" .. (brRarity or "Unknown") .. "`", inline = true},
-                {name = "Mutation", value = "`" .. mutText .. "`", inline = true},
-                {name = "CPS/s", value = "`" .. FormatCPS(brCPS) .. "`", inline = true},
-                {name = "Reason", value = "`" .. (reason or "CPS Target Met") .. "`", inline = true},
-                {name = "Waktu (WIB)", value = "`" .. timeDisplay .. "`", inline = true},
-                {name = "Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. " | Time: " .. sessionTime .. "`", inline = false},
-                {name = "Server", value = "`" .. serverInfo .. " | Players: " .. playerCount .. "`", inline = false},
+                {name = "Brainrot", value = tostring(brName or "Unknown"), inline = true},
+                {name = "Rarity", value = tostring(brRarity or "Unknown"), inline = true},
+                {name = "Mutation", value = mutText, inline = true},
+                {name = "CPS", value = cpsText, inline = false},
+                {name = "Reason", value = reasonText, inline = false},
+                {name = "Player", value = playerName, inline = true},
+                {name = "Stats", value = "Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount, inline = true},
+                {name = "Waktu (WIB)", value = timeText, inline = false},
             },
-            footer = {text = "Moron HUB v1.2 | Smart Farm System"},
-            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+            footer = {text = "Moron HUB v1.2 | Smart Farm"}
         }
         
         local payload = HttpService:JSONEncode({
-            username = "Moron HUB",
             embeds = {embed}
         })
         
-        -- Send HTTP request (compatible with Delta, Fluxus, Solara, Wave, Synapse, etc.)
-        local success, err = pcall(function()
-            local httpReq = request or http_request or (syn and syn.request) or (http and http.request) or fluxus_request
-            if httpReq then
-                httpReq({
-                    Url = S.WebhookURL,
-                    Method = "POST",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = payload
-                })
-                print("[Moron HUB] Webhook sent successfully!")
-            else
-                -- Delta fallback: try HttpService:PostAsync or game:HttpPost
-                local sent = false
-                pcall(function()
-                    HttpService:PostAsync(S.WebhookURL, payload)
-                    sent = true
-                end)
-                if not sent then
-                    pcall(function()
-                        game:HttpPost(S.WebhookURL, payload, "application/json")
-                        sent = true
-                    end)
-                end
-                if sent then
-                    print("[Moron HUB] Webhook sent via fallback method!")
-                else
-                    warn("[Moron HUB] No HTTP function available! Webhook cannot be sent.")
-                end
-            end
-        end)
-        if not success then
-            warn("[Moron HUB] Webhook error: " .. tostring(err))
+        -- Send HTTP request
+        local httpReq = request or http_request or (syn and syn.request) or (http and http.request) or fluxus_request
+        if httpReq then
+            httpReq({
+                Url = S.WebhookURL,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = payload
+            })
+            print("[Moron HUB] Webhook sent successfully!")
         end
     end)
 end
@@ -290,71 +232,45 @@ SendDisconnectWebhook = function(disconnectReason)
     if not S.WebhookEnabled or S.WebhookURL == "" then return end
     
     pcall(function()
-        -- GMT+7 (WIB Indonesia) timestamp
-        local utcTime = os.time()
-        local wibTime = utcTime + (7 * 3600)
-        local timeDisplay = os.date("!%d/%m/%Y %H:%M:%S WIB", wibTime)
-        
-        -- Player info
         local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
+        local wibTime = os.time() + (7 * 3600)
+        local timeText = os.date("!%d/%m/%Y %H:%M:%S WIB", wibTime)
         
-        -- Session duration
         local sessionTime = "?"
         pcall(function()
             local elapsed = os.time() - (S.SessionStart or os.time())
             local hrs = math.floor(elapsed / 3600)
             local mins = math.floor((elapsed % 3600) / 60)
-            local secs = elapsed % 60
-            sessionTime = string.format("%dh %dm %ds", hrs, mins, secs)
+            sessionTime = string.format("%dh %dm", hrs, mins)
         end)
         
-        -- Server info
-        local serverInfo = "PlaceId: " .. tostring(game.PlaceId)
-        pcall(function() serverInfo = serverInfo .. " | JobId: " .. string.sub(tostring(game.JobId), 1, 8) .. "..." end)
-        
-        -- Build disconnect embed (red color = warning, NO avatar)
         local embed = {
-            author = {name = playerName},
-            title = "\226\157\140 DISCONNECTED",
-            description = "```\nPlayer telah terputus dari game!\n```",
-            color = 16711680, -- Red
+            title = "DISCONNECTED!",
+            description = "Player telah terputus dari game.",
+            color = 16711680,
             fields = {
-                {name = "Alasan", value = "`" .. (disconnectReason or "Unknown") .. "`", inline = false},
-                {name = "Player", value = "`" .. playerName .. "`", inline = true},
-                {name = "Waktu (WIB)", value = "`" .. timeDisplay .. "`", inline = true},
-                {name = "Durasi Session", value = "`" .. sessionTime .. "`", inline = true},
-                {name = "Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. "`", inline = false},
-                {name = "Server", value = "`" .. serverInfo .. "`", inline = false},
+                {name = "Alasan", value = tostring(disconnectReason or "Unknown"), inline = false},
+                {name = "Player", value = playerName, inline = true},
+                {name = "Durasi", value = sessionTime, inline = true},
+                {name = "Stats", value = "Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount, inline = true},
+                {name = "Waktu (WIB)", value = timeText, inline = false},
             },
-            footer = {text = "Moron HUB v1.2 | Disconnect Alert"},
-            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+            footer = {text = "Moron HUB v1.2 | Disconnect Alert"}
         }
         
         local payload = HttpService:JSONEncode({
-            username = "Moron HUB",
             embeds = {embed}
         })
         
-        -- Send HTTP request (compatible with Delta, Fluxus, Solara, Wave, Synapse, etc.)
-        local success, err = pcall(function()
-            local httpReq = request or http_request or (syn and syn.request) or (http and http.request) or fluxus_request
-            if httpReq then
-                httpReq({
-                    Url = S.WebhookURL,
-                    Method = "POST",
-                    Headers = {["Content-Type"] = "application/json"},
-                    Body = payload
-                })
-                print("[Moron HUB] Disconnect webhook sent!")
-            else
-                local sent = false
-                pcall(function() HttpService:PostAsync(S.WebhookURL, payload); sent = true end)
-                if not sent then pcall(function() game:HttpPost(S.WebhookURL, payload, "application/json"); sent = true end) end
-                if not sent then warn("[Moron HUB] Disconnect webhook: No HTTP function available!") end
-            end
-        end)
-        if not success then
-            warn("[Moron HUB] Disconnect webhook error: " .. tostring(err))
+        local httpReq = request or http_request or (syn and syn.request) or (http and http.request) or fluxus_request
+        if httpReq then
+            httpReq({
+                Url = S.WebhookURL,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = payload
+            })
+            print("[Moron HUB] Disconnect webhook sent!")
         end
     end)
 end
