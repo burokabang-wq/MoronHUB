@@ -155,22 +155,10 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         -- GMT+7 (WIB Indonesia) timestamp
         local utcTime = os.time()
         local wibTime = utcTime + (7 * 3600)
-        local timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ", wibTime)
         local timeDisplay = os.date("!%d/%m/%Y %H:%M:%S WIB", wibTime)
         
         -- Player info
         local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
-        -- Get Roblox avatar URL
-        -- Method: GetUserThumbnailAsync returns a direct CDN URL (rbxcdn.com) that Discord can render
-        local playerAvatar = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(LP.UserId) .. "&width=420&height=420&format=png"
-        pcall(function()
-            local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
-                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420
-            )
-            if content and type(content) == "string" and content ~= "" and isReady then
-                playerAvatar = content
-            end
-        end)
         
         -- Number formatter
         local function FormatCPS(n)
@@ -204,36 +192,16 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         
         -- Mutation display
         local mutText = (brMutation and brMutation ~= "None" and brMutation ~= "") and brMutation or "None"
-        local mutDisplay = mutText ~= "None" and ("\240\159\167\172 " .. mutText) or "\226\157\140 No Mutation"
         
         -- Brainrot image (thumbnail for embed)
-        local brainrotImage = ""
+        local brainrotImage = nil
         pcall(function()
             local lookup = CPSLookup[brName]
             if lookup and lookup.image and lookup.image ~= "" then
-                local imgId = lookup.image
-                -- Convert rbxassetid to Roblox CDN URL for Discord
-                local assetId = string.match(imgId, "%d+")
+                local assetId = string.match(lookup.image, "%d+")
                 if assetId then
                     brainrotImage = "https://assetdelivery.roblox.com/v1/asset/?id=" .. assetId
                 end
-            end
-            -- Alternative: try to get from game's asset directly
-            if brainrotImage == "" and brName then
-                -- Use rbxthumb protocol converted to web URL
-                pcall(function()
-                    local EntData = require(RS.Shared.Data.Entities)
-                    if EntData and EntData.Brainrots and EntData.Brainrots[brName] then
-                        local data = EntData.Brainrots[brName]
-                        local img = data.Image or data.Icon or data.Thumbnail or data.ImageId or data.IconId
-                        if img then
-                            local id = tostring(img):match("%d+")
-                            if id then
-                                brainrotImage = "https://assetdelivery.roblox.com/v1/asset/?id=" .. id
-                            end
-                        end
-                    end
-                end)
             end
         end)
         
@@ -251,33 +219,29 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
             sessionTime = string.format("%dm %ds", mins, secs)
         end)
         
-        -- Build professional embed
-        local authorSection = {name = playerName, icon_url = playerAvatar}
-        local footerSection = {text = "Moron HUB v1.2 | Smart Farm System", icon_url = playerAvatar}
-        
+        -- Build embed (NO avatar URLs - only brainrot image)
         local embed = {
-            author = authorSection,
+            author = {name = playerName},
             title = rEmoji .. " GOOD ROLL \226\128\148 " .. (brName or "Unknown"),
             description = "```\n" .. (brName or "Unknown") .. " [" .. (brRarity or "?") .. "]\nCPS: " .. FormatCPS(brCPS) .. "/s | Mutation: " .. mutText .. "\n```",
             color = embedColor,
-            thumbnail = (brainrotImage ~= "") and {url = brainrotImage} or nil,
+            thumbnail = brainrotImage and {url = brainrotImage} or nil,
             fields = {
-                {name = "\240\159\167\160 Brainrot", value = "`" .. (brName or "Unknown") .. "`", inline = true},
-                {name = "\240\159\146\142 Rarity", value = "`" .. (brRarity or "Unknown") .. "`", inline = true},
-                {name = "\240\159\167\172 Mutation", value = "`" .. mutText .. "`", inline = true},
-                {name = "\240\159\146\176 CPS/s", value = "`" .. FormatCPS(brCPS) .. "`", inline = true},
-                {name = "\240\159\147\141 Reason", value = "`" .. (reason or "CPS Target Met") .. "`", inline = true},
-                {name = "\226\143\176 Waktu (WIB)", value = "`" .. timeDisplay .. "`", inline = true},
-                {name = "\240\159\147\138 Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. " | Time: " .. sessionTime .. "`", inline = false},
-                {name = "\240\159\140\144 Server", value = "`" .. serverInfo .. " | Players: " .. playerCount .. "`", inline = false},
+                {name = "Brainrot", value = "`" .. (brName or "Unknown") .. "`", inline = true},
+                {name = "Rarity", value = "`" .. (brRarity or "Unknown") .. "`", inline = true},
+                {name = "Mutation", value = "`" .. mutText .. "`", inline = true},
+                {name = "CPS/s", value = "`" .. FormatCPS(brCPS) .. "`", inline = true},
+                {name = "Reason", value = "`" .. (reason or "CPS Target Met") .. "`", inline = true},
+                {name = "Waktu (WIB)", value = "`" .. timeDisplay .. "`", inline = true},
+                {name = "Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. " | Time: " .. sessionTime .. "`", inline = false},
+                {name = "Server", value = "`" .. serverInfo .. " | Players: " .. playerCount .. "`", inline = false},
             },
-            footer = footerSection,
+            footer = {text = "Moron HUB v1.2 | Smart Farm System"},
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
         }
         
         local payload = HttpService:JSONEncode({
             username = "Moron HUB",
-            avatar_url = playerAvatar,
             embeds = {embed}
         })
         
@@ -333,15 +297,6 @@ SendDisconnectWebhook = function(disconnectReason)
         
         -- Player info
         local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
-        local playerAvatar = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(LP.UserId) .. "&width=420&height=420&format=png"
-        pcall(function()
-            local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
-                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420
-            )
-            if content and type(content) == "string" and content ~= "" and isReady then
-                playerAvatar = content
-            end
-        end)
         
         -- Session duration
         local sessionTime = "?"
@@ -357,33 +312,26 @@ SendDisconnectWebhook = function(disconnectReason)
         local serverInfo = "PlaceId: " .. tostring(game.PlaceId)
         pcall(function() serverInfo = serverInfo .. " | JobId: " .. string.sub(tostring(game.JobId), 1, 8) .. "..." end)
         
-        -- Build disconnect embed (red color = warning)
+        -- Build disconnect embed (red color = warning, NO avatar)
         local embed = {
-            author = {
-                name = playerName,
-                icon_url = playerAvatar
-            },
+            author = {name = playerName},
             title = "\226\157\140 DISCONNECTED",
             description = "```\nPlayer telah terputus dari game!\n```",
             color = 16711680, -- Red
             fields = {
-                {name = "\240\159\148\140 Alasan", value = "`" .. (disconnectReason or "Unknown") .. "`", inline = false},
-                {name = "\240\159\145\164 Player", value = "`" .. playerName .. "`", inline = true},
-                {name = "\226\143\176 Waktu (WIB)", value = "`" .. timeDisplay .. "`", inline = true},
-                {name = "\226\143\177 Durasi Session", value = "`" .. sessionTime .. "`", inline = true},
-                {name = "\240\159\147\138 Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. "`", inline = false},
-                {name = "\240\159\140\144 Server", value = "`" .. serverInfo .. "`", inline = false},
+                {name = "Alasan", value = "`" .. (disconnectReason or "Unknown") .. "`", inline = false},
+                {name = "Player", value = "`" .. playerName .. "`", inline = true},
+                {name = "Waktu (WIB)", value = "`" .. timeDisplay .. "`", inline = true},
+                {name = "Durasi Session", value = "`" .. sessionTime .. "`", inline = true},
+                {name = "Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. "`", inline = false},
+                {name = "Server", value = "`" .. serverInfo .. "`", inline = false},
             },
-            footer = {
-                text = "Moron HUB v1.2 | Disconnect Alert",
-                icon_url = playerAvatar
-            },
+            footer = {text = "Moron HUB v1.2 | Disconnect Alert"},
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
         }
         
         local payload = HttpService:JSONEncode({
-            username = "Moron HUB \226\154\160\239\184\143",
-            avatar_url = playerAvatar,
+            username = "Moron HUB",
             embeds = {embed}
         })
         
