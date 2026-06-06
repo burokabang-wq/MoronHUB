@@ -390,11 +390,16 @@ end
 -- DISCONNECT / ERROR WEBHOOK NOTIFICATION
 -- ══════════════════════════════════════════════════════════════
 local SendDisconnectWebhook
-local _disconnectWebhookSent = false
 SendDisconnectWebhook = function(disconnectReason)
     if not S.WebhookEnabled or S.WebhookURL == "" then return end
-    if _disconnectWebhookSent then return end
-    _disconnectWebhookSent = true
+    
+    -- STRICT single-send guard using getgenv (persists across all scopes)
+    local genv = (getgenv and getgenv()) or _G
+    if genv._MoronHUB_DisconnectSent then
+        print("[Moron HUB] Disconnect webhook already sent, skipping.")
+        return
+    end
+    genv._MoronHUB_DisconnectSent = true
     
     pcall(function()
         local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
@@ -435,7 +440,7 @@ SendDisconnectWebhook = function(disconnectReason)
                 Headers = {["Content-Type"] = "application/json"},
                 Body = payload
             })
-            print("[Moron HUB] Disconnect webhook sent!")
+            print("[Moron HUB] Disconnect webhook sent! (1x only)")
         end
     end)
 end
