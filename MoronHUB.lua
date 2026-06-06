@@ -160,20 +160,17 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         
         -- Player info
         local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
-        -- Get Roblox avatar URL (direct CDN link that Discord can display)
-        local playerAvatar = ""
+        -- Get Roblox avatar URL
+        -- Method: GetUserThumbnailAsync returns a direct CDN URL (rbxcdn.com) that Discord can render
+        local playerAvatar = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(LP.UserId) .. "&width=420&height=420&format=png"
         pcall(function()
             local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
-                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150
+                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420
             )
-            if content and content ~= "" and isReady then
+            if content and type(content) == "string" and content ~= "" and isReady then
                 playerAvatar = content
             end
         end)
-        -- Fallback if GetUserThumbnailAsync fails
-        if playerAvatar == "" then
-            playerAvatar = "https://tr.rbxcdn.com/30DAY-AvatarHeadshot-" .. tostring(LP.UserId) .. "-150x150.png"
-        end
         
         -- Number formatter
         local function FormatCPS(n)
@@ -218,8 +215,25 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
                 -- Convert rbxassetid to Roblox CDN URL for Discord
                 local assetId = string.match(imgId, "%d+")
                 if assetId then
-                    brainrotImage = "https://www.roblox.com/asset-thumbnail/image?assetId=" .. assetId .. "&width=150&height=150&format=png"
+                    brainrotImage = "https://assetdelivery.roblox.com/v1/asset/?id=" .. assetId
                 end
+            end
+            -- Alternative: try to get from game's asset directly
+            if brainrotImage == "" and brName then
+                -- Use rbxthumb protocol converted to web URL
+                pcall(function()
+                    local EntData = require(RS.Shared.Data.Entities)
+                    if EntData and EntData.Brainrots and EntData.Brainrots[brName] then
+                        local data = EntData.Brainrots[brName]
+                        local img = data.Image or data.Icon or data.Thumbnail or data.ImageId or data.IconId
+                        if img then
+                            local id = tostring(img):match("%d+")
+                            if id then
+                                brainrotImage = "https://assetdelivery.roblox.com/v1/asset/?id=" .. id
+                            end
+                        end
+                    end
+                end)
             end
         end)
         
@@ -238,12 +252,12 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         end)
         
         -- Build professional embed
+        local authorSection = {name = playerName, icon_url = playerAvatar}
+        local footerSection = {text = "Moron HUB v1.2 | Smart Farm System", icon_url = playerAvatar}
+        
         local embed = {
-            author = {
-                name = playerName,
-                icon_url = playerAvatar
-            },
-            title = rEmoji .. " GOOD ROLL — " .. (brName or "Unknown"),
+            author = authorSection,
+            title = rEmoji .. " GOOD ROLL \226\128\148 " .. (brName or "Unknown"),
             description = "```\n" .. (brName or "Unknown") .. " [" .. (brRarity or "?") .. "]\nCPS: " .. FormatCPS(brCPS) .. "/s | Mutation: " .. mutText .. "\n```",
             color = embedColor,
             thumbnail = (brainrotImage ~= "") and {url = brainrotImage} or nil,
@@ -257,15 +271,12 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
                 {name = "\240\159\147\138 Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. " | Time: " .. sessionTime .. "`", inline = false},
                 {name = "\240\159\140\144 Server", value = "`" .. serverInfo .. " | Players: " .. playerCount .. "`", inline = false},
             },
-            footer = {
-                text = "Moron HUB v1.2 | Smart Farm System",
-                icon_url = playerAvatar
-            },
+            footer = footerSection,
             timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
         }
         
         local payload = HttpService:JSONEncode({
-            username = "Moron HUB \240\159\142\175",
+            username = "Moron HUB",
             avatar_url = playerAvatar,
             embeds = {embed}
         })
@@ -298,18 +309,15 @@ SendDisconnectWebhook = function(disconnectReason)
         
         -- Player info
         local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
-        local playerAvatar = ""
+        local playerAvatar = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. tostring(LP.UserId) .. "&width=420&height=420&format=png"
         pcall(function()
             local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
-                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150
+                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420
             )
-            if content and content ~= "" and isReady then
+            if content and type(content) == "string" and content ~= "" and isReady then
                 playerAvatar = content
             end
         end)
-        if playerAvatar == "" then
-            playerAvatar = "https://tr.rbxcdn.com/30DAY-AvatarHeadshot-" .. tostring(LP.UserId) .. "-150x150.png"
-        end
         
         -- Session duration
         local sessionTime = "?"
