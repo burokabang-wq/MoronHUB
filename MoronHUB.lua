@@ -160,7 +160,20 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         
         -- Player info
         local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
-        local playerAvatar = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=150&height=150&format=png"
+        -- Get Roblox avatar URL (direct CDN link that Discord can display)
+        local playerAvatar = ""
+        pcall(function()
+            local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
+                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150
+            )
+            if content and content ~= "" and isReady then
+                playerAvatar = content
+            end
+        end)
+        -- Fallback if GetUserThumbnailAsync fails
+        if playerAvatar == "" then
+            playerAvatar = "https://tr.rbxcdn.com/30DAY-AvatarHeadshot-" .. tostring(LP.UserId) .. "-150x150.png"
+        end
         
         -- Number formatter
         local function FormatCPS(n)
