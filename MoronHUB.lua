@@ -70,6 +70,8 @@ local S = {
     Auto2xBonus = false,
     AutoBuyWeight = false,
     TargetWeight = "None",
+    -- Potion
+    AutoPotion = false,
     -- Player
     GodMode = false,
     AntiAFK = true,
@@ -93,6 +95,7 @@ local SAVE_KEYS = {
     "AutoBaseUpgrade", "AutoFavorite", "AutoSell", "AutoPlaceBest", "AutoPlotUpgrade",
     "MinFavCPS", "MinUnfavCPS", "AutoPlaceBestGlobal",
     "AutoTrain", "AutoTrainCollect", "Auto2xBonus", "AutoBuyWeight", "TargetWeight",
+    "AutoPotion",
     "GodMode", "AntiAFK", "FPSBoost",
     "WebhookEnabled", "WebhookURL"
 }
@@ -1844,6 +1847,105 @@ end
 
 
 -- ══════════════════════════════════════════════════════════════
+-- AUTO POTION (Farm Potion - x2 Kick & Run Speed)
+-- ══════════════════════════════════════════════════════════════
+local function DoAutoPotion()
+    pcall(function()
+        -- The Farm Potion (x2 kick & run speed, 10 min) is from Rocky's Store (Update 5)
+        -- It's purchased via rev_Shop_Buy with the potion shop category
+        -- We try multiple known/possible argument formats
+        
+        local shopRemote = R.ShopBuy
+        local interactRemote = R.Interact
+        
+        -- Method 1: Try rev_Shop_Buy with various potion category names
+        if shopRemote then
+            -- Try common category names for the potion shop
+            local potionCategories = {"PotionShop", "Potions", "RockyShop", "Rocky"}
+            local potionNames = {"FarmPotion", "Farm Potion", "SpeedPotion", "Speed Potion", "Farm", "Speed"}
+            
+            for _, cat in ipairs(potionCategories) do
+                for _, pName in ipairs(potionNames) do
+                    pcall(function() shopRemote:FireServer(cat, pName) end)
+                end
+            end
+            
+            -- Also try single-argument format
+            for _, pName in ipairs(potionNames) do
+                pcall(function() shopRemote:FireServer(pName) end)
+            end
+        end
+        
+        -- Method 2: Try rev_S_Interact with potion commands
+        if interactRemote then
+            local potionCmds = {"UsePotion", "BuyPotion", "FarmPotion", "UseFarmPotion", "Potion", "UseSpeedPotion"}
+            for _, cmd in ipairs(potionCmds) do
+                pcall(function() interactRemote:FireServer(cmd) end)
+                pcall(function() interactRemote:FireServer(cmd, "Farm") end)
+                pcall(function() interactRemote:FireServer(cmd, "FarmPotion") end)
+            end
+        end
+        
+        -- Method 3: Try NetworkModule.FireServer if available
+        if NetworkModule and type(NetworkModule) == "table" and NetworkModule.FireServer then
+            pcall(function() NetworkModule.FireServer("UsePotion", "Farm") end)
+            pcall(function() NetworkModule.FireServer("BuyPotion", "FarmPotion") end)
+            pcall(function() NetworkModule.FireServer("UsePotion", "FarmPotion") end)
+            pcall(function() NetworkModule.FireServer("Potion", "Farm") end)
+        end
+        
+        -- Method 4: Try to find and click potion GUI button in PlayerGui
+        pcall(function()
+            local pg = LP:FindFirstChild("PlayerGui")
+            if not pg then return end
+            for _, gui in ipairs(pg:GetDescendants()) do
+                if gui:IsA("TextButton") or gui:IsA("ImageButton") then
+                    local btnText = ""
+                    pcall(function() btnText = string.lower(gui.Text or "") end)
+                    local btnName = string.lower(gui.Name or "")
+                    if string.find(btnText, "farm") or string.find(btnText, "potion") or string.find(btnText, "speed") 
+                       or string.find(btnName, "farmpotion") or string.find(btnName, "speedpotion") or string.find(btnName, "potion") then
+                        -- Check if it's visible and likely a potion button
+                        if gui.Visible ~= false and gui.Parent and gui.Parent.Visible ~= false then
+                            -- Fire button connections
+                            if getconnections then
+                                pcall(function()
+                                    for _, conn in pairs(getconnections(gui.MouseButton1Click)) do conn:Fire() end
+                                end)
+                                pcall(function()
+                                    for _, conn in pairs(getconnections(gui.Activated)) do conn:Fire() end
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        
+        -- Method 5: Find any remote with "Potion" in its name dynamically
+        pcall(function()
+            local nf = RS:FindFirstChild("Shared") and RS.Shared:FindFirstChild("Packages") and RS.Shared.Packages:FindFirstChild("Network")
+            if nf then
+                for _, child in ipairs(nf:GetChildren()) do
+                    if string.find(string.lower(child.Name), "potion") then
+                        pcall(function() child:FireServer() end)
+                        pcall(function() child:FireServer("Farm") end)
+                        pcall(function() child:FireServer("FarmPotion") end)
+                    end
+                end
+            end
+        end)
+    end)
+end
+
+local function LoopPotion()
+    while S.AutoPotion and S.Running do
+        DoAutoPotion()
+        task.wait(300) -- Re-apply every 5 minutes (potion lasts 10 min)
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════
 -- UI DESIGN
 -- ══════════════════════════════════════════════════════════════
 local Color = {
@@ -2728,6 +2830,11 @@ Toggle(P_Upgrade, "Auto Upgrade Brainrot", "AutoUpgrade", function(v) if v then 
 Section(P_Upgrade, "SPEED & BASE", 4)
 Toggle(P_Upgrade, "Auto Buy Speed", "AutoBuySpeed", function(v) if v then task.spawn(LoopBuySpeed) end end, 5)
 Toggle(P_Upgrade, "Auto Base Upgrade", "AutoBaseUpgrade", function(v) if v then task.spawn(LoopBaseUpgrade) end end, 6)
+
+Section(P_Upgrade, "POTION (Rocky's Store)", 7)
+InfoLabel(P_Upgrade, "Auto use Farm Potion (x2 kick & run speed)", 8)
+InfoLabel(P_Upgrade, "Otomatis aktifkan potion tanpa perlu beli/event", 9)
+Toggle(P_Upgrade, "Auto Potion (Inf Speed)", "AutoPotion", function(v) if v then task.spawn(LoopPotion) end end, 10)
 
 -- ═══════════════ TRAIN TAB (WEIGHT LIFTING) ═══════════════
 Section(P_Train, "WEIGHT TRAINING", 1)
