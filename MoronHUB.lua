@@ -217,6 +217,30 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
             end)
         end
         
+        -- Get brainrot image URL via Roblox Thumbnails API
+        local brainrotImage = ""
+        pcall(function()
+            local lookup = CPSLookup[brName]
+            if lookup and lookup.image and lookup.image ~= "" then
+                local assetId = string.match(lookup.image, "%d+")
+                if assetId then
+                    local httpReqImg = request or http_request or (syn and syn.request) or (http and http.request)
+                    if httpReqImg then
+                        local resp = httpReqImg({
+                            Url = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. assetId .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false",
+                            Method = "GET"
+                        })
+                        if resp and resp.Body then
+                            local imgUrl = string.match(resp.Body, '"imageUrl":"([^"]+)"')
+                            if imgUrl and imgUrl ~= "" then
+                                brainrotImage = imgUrl
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        
         -- Build embed
         local embed = {
             title = "GOOD ROLL!",
@@ -234,6 +258,11 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
             },
             footer = {text = "Moron HUB v1.2 | Smart Farm"}
         }
+        
+        -- Add brainrot image as thumbnail if available
+        if brainrotImage ~= "" then
+            embed.thumbnail = {url = brainrotImage}
+        end
         
         -- Add avatar as author icon if available
         if playerAvatar ~= "" then
