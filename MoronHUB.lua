@@ -284,6 +284,90 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
 end
 
 -- ══════════════════════════════════════════════════════════════
+-- DISCONNECT / ERROR WEBHOOK NOTIFICATION
+-- ══════════════════════════════════════════════════════════════
+local SendDisconnectWebhook
+SendDisconnectWebhook = function(disconnectReason)
+    if not S.WebhookEnabled or S.WebhookURL == "" then return end
+    
+    pcall(function()
+        -- GMT+7 (WIB Indonesia) timestamp
+        local utcTime = os.time()
+        local wibTime = utcTime + (7 * 3600)
+        local timeDisplay = os.date("!%d/%m/%Y %H:%M:%S WIB", wibTime)
+        
+        -- Player info
+        local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
+        local playerAvatar = ""
+        pcall(function()
+            local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
+                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150
+            )
+            if content and content ~= "" and isReady then
+                playerAvatar = content
+            end
+        end)
+        if playerAvatar == "" then
+            playerAvatar = "https://tr.rbxcdn.com/30DAY-AvatarHeadshot-" .. tostring(LP.UserId) .. "-150x150.png"
+        end
+        
+        -- Session duration
+        local sessionTime = "?"
+        pcall(function()
+            local elapsed = os.time() - (S.SessionStart or os.time())
+            local hrs = math.floor(elapsed / 3600)
+            local mins = math.floor((elapsed % 3600) / 60)
+            local secs = elapsed % 60
+            sessionTime = string.format("%dh %dm %ds", hrs, mins, secs)
+        end)
+        
+        -- Server info
+        local serverInfo = "PlaceId: " .. tostring(game.PlaceId)
+        pcall(function() serverInfo = serverInfo .. " | JobId: " .. string.sub(tostring(game.JobId), 1, 8) .. "..." end)
+        
+        -- Build disconnect embed (red color = warning)
+        local embed = {
+            author = {
+                name = playerName,
+                icon_url = playerAvatar
+            },
+            title = "\226\157\140 DISCONNECTED",
+            description = "```\nPlayer telah terputus dari game!\n```",
+            color = 16711680, -- Red
+            fields = {
+                {name = "\240\159\148\140 Alasan", value = "`" .. (disconnectReason or "Unknown") .. "`", inline = false},
+                {name = "\240\159\145\164 Player", value = "`" .. playerName .. "`", inline = true},
+                {name = "\226\143\176 Waktu (WIB)", value = "`" .. timeDisplay .. "`", inline = true},
+                {name = "\226\143\177 Durasi Session", value = "`" .. sessionTime .. "`", inline = true},
+                {name = "\240\159\147\138 Session Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. "`", inline = false},
+                {name = "\240\159\140\144 Server", value = "`" .. serverInfo .. "`", inline = false},
+            },
+            footer = {
+                text = "Moron HUB v1.2 | Disconnect Alert",
+                icon_url = playerAvatar
+            },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }
+        
+        local payload = HttpService:JSONEncode({
+            username = "Moron HUB \226\154\160\239\184\143",
+            avatar_url = playerAvatar,
+            embeds = {embed}
+        })
+        
+        local httpReq = (syn and syn.request) or (http and http.request) or http_request or request or fluxus_request
+        if httpReq then
+            httpReq({
+                Url = S.WebhookURL,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = payload
+            })
+        end
+    end)
+end
+
+-- ══════════════════════════════════════════════════════════════
 -- GOOD ROLL HISTORY (Last 3)
 -- ══════════════════════════════════════════════════════════════
 AddGoodRollHistory = function(brName, brMutation, brCPS, brRarity, reason)
@@ -2897,4 +2981,86 @@ task.defer(function()
     print("  KickReady: " .. (kr and kr:GetFullName() or "NOT FOUND"))
     print("  Press RightShift to toggle UI")
     print("═══════════════════════════════════════")
+end)
+
+-- ══════════════════════════════════════════════════════════════
+-- DISCONNECT DETECTION & NOTIFICATION
+-- ══════════════════════════════════════════════════════════════
+-- Method 1: game.Close (fires when game window closes / teleport / kick)
+pcall(function()
+    game:BindToClose(function()
+        SendDisconnectWebhook("Game Closing / Teleport")
+        task.wait(2) -- Give time for webhook to send
+    end)
+end)
+
+-- Method 2: Monitor NetworkClient for disconnect
+pcall(function()
+    local nc = game:GetService("NetworkClient")
+    if nc then
+        nc.ChildRemoved:Connect(function()
+            SendDisconnectWebhook("Network Connection Lost")
+        end)
+    end
+end)
+
+-- Method 3: Heartbeat watchdog - detect if game stops responding
+task.spawn(function()
+    local lastHeartbeat = tick()
+    game:GetService("RunService").Heartbeat:Connect(function()
+        lastHeartbeat = tick()
+    end)
+    while S.Running do
+        task.wait(10)
+        if (tick() - lastHeartbeat) > 15 then
+            SendDisconnectWebhook("Game Freeze / Not Responding")
+            break
+        end
+    end
+end)
+
+-- Method 4: Player removing (kicked from server)
+pcall(function()
+    game:GetService("Players").PlayerRemoving:Connect(function(plr)
+        if plr == LP then
+            SendDisconnectWebhook("Kicked from Server")
+        end
+    end)
+end)
+
+-- Method 5: CoreGui error screen detection (Roblox disconnect popup)
+task.spawn(function()
+    pcall(function()
+        local coreGui = game:GetService("CoreGui")
+        local function checkDisconnectUI()
+            -- Roblox shows ErrorPrompt when disconnected
+            for _, desc in ipairs(coreGui:GetDescendants()) do
+                if desc.Name == "ErrorPrompt" or desc.Name == "ErrorMessage" then
+                    if desc:IsA("GuiObject") and desc.Visible then
+                        local reason = "Disconnected (Error Prompt Detected)"
+                        pcall(function()
+                            local msgLabel = desc:FindFirstChild("MessageArea") or desc:FindFirstChild("ErrorMessage")
+                            if msgLabel then
+                                local txt = msgLabel:FindFirstChildOfClass("TextLabel")
+                                if txt and txt.Text ~= "" then
+                                    reason = txt.Text
+                                end
+                            end
+                        end)
+                        SendDisconnectWebhook(reason)
+                        return true
+                    end
+                end
+            end
+            return false
+        end
+        
+        -- Monitor for disconnect UI appearing
+        coreGui.DescendantAdded:Connect(function(desc)
+            if desc.Name == "ErrorPrompt" or desc.Name == "ErrorMessage" then
+                task.wait(0.5)
+                checkDisconnectUI()
+            end
+        end)
+    end)
 end)
