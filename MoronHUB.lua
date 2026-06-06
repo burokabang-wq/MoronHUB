@@ -1887,10 +1887,11 @@ local function SmartFarmLoop()
                         -- Check distance
                         local dist = (curHrp.Position - targetPos).Magnitude
                         
-                        -- Deactivate speed EARLY (dist < 30) so we arrive at normal speed
-                        -- This prevents brainrot collection issues from being too fast
-                        if dist < 30 and _speedBoostActive then
+                        -- Deactivate speed EARLY (dist < 60) so we walk normally into kick zone
+                        -- Speed must be OFF before entering kick zone for brainrot to collect
+                        if dist < 60 and _speedBoostActive then
                             pcall(DeactivateSpeedBoost)
+                            S.Status = "Speed off, walking to kick zone..."
                         end
                         
                         if dist < 8 then
