@@ -217,27 +217,69 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
             end)
         end
         
-        -- Get brainrot image URL via Roblox Thumbnails API
+        -- Get brainrot image URL
         local brainrotImage = ""
         pcall(function()
-            local lookup = CPSLookup[brName]
-            if lookup and lookup.image and lookup.image ~= "" then
-                local assetId = string.match(lookup.image, "%d+")
-                if assetId then
-                    local httpReqImg = request or http_request or (syn and syn.request) or (http and http.request)
-                    if httpReqImg then
-                        local resp = httpReqImg({
-                            Url = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. assetId .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false",
-                            Method = "GET"
-                        })
-                        if resp and resp.Body then
-                            local imgUrl = string.match(resp.Body, '"imageUrl":"([^"]+)"')
-                            if imgUrl and imgUrl ~= "" then
-                                brainrotImage = imgUrl
-                            end
+            local httpReqImg = request or http_request or (syn and syn.request) or (http and http.request)
+            if not httpReqImg then return end
+            
+            -- Method 1: Find the tool in Backpack/Character and get its TextureId or image from descendants
+            local assetId = nil
+            local player = LP
+            local tool = nil
+            
+            -- Search in Backpack
+            if player.Backpack then
+                tool = player.Backpack:FindFirstChild(brName)
+            end
+            -- Search in Character
+            if not tool and player.Character then
+                tool = player.Character:FindFirstChild(brName)
+            end
+            
+            if tool then
+                -- Try tool.TextureId first
+                if tool.TextureId and tool.TextureId ~= "" then
+                    assetId = string.match(tool.TextureId, "%d+")
+                end
+                -- Try finding Decal or ImageLabel in descendants
+                if not assetId then
+                    for _, desc in ipairs(tool:GetDescendants()) do
+                        if desc:IsA("Decal") and desc.Texture and desc.Texture ~= "" then
+                            assetId = string.match(desc.Texture, "%d+")
+                            if assetId then break end
+                        elseif desc:IsA("ImageLabel") and desc.Image and desc.Image ~= "" then
+                            assetId = string.match(desc.Image, "%d+")
+                            if assetId then break end
                         end
                     end
                 end
+            end
+            
+            -- Method 2: Try CPSLookup image
+            if not assetId then
+                local lookup = CPSLookup[brName]
+                if lookup and lookup.image and lookup.image ~= "" then
+                    assetId = string.match(lookup.image, "%d+")
+                end
+            end
+            
+            -- Convert assetId to CDN URL via Thumbnails API
+            if assetId then
+                print("[Moron HUB] Brainrot image assetId: " .. assetId)
+                local resp = httpReqImg({
+                    Url = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. assetId .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false",
+                    Method = "GET"
+                })
+                if resp and resp.Body then
+                    local imgUrl = string.match(resp.Body, '"imageUrl":"([^"]+)"')
+                    if imgUrl and imgUrl ~= "" then
+                        brainrotImage = imgUrl
+                        print("[Moron HUB] Got brainrot image: " .. imgUrl)
+                    end
+                end
+            else
+                print("[Moron HUB] No image assetId found for: " .. tostring(brName))
             end
         end)
         
