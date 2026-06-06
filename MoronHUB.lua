@@ -1853,96 +1853,151 @@ end
 
 
 -- ══════════════════════════════════════════════════════════════
--- AUTO POTION (Farm Potion - x2 Kick & Run Speed)
+-- SPEED BOOST BYPASS (x2 Run Speed - No Potion Needed)
 -- ══════════════════════════════════════════════════════════════
-local _originalSpeed = nil -- Store original speed before boost
+local _speedBoostActive = false
+local _speedConnections = {}
+local _targetSpeed = 200 -- Target speed (will be adjusted based on game speed)
 
-local function DoAutoPotion()
-    -- BYPASS: Apply Farm Potion effect (x2 kick & run speed) client-side
-    -- No need to own the potion or wait for Admin event
-    -- Multiplies current player speed by 2
-    pcall(function()
+local function ActivateSpeedBoost()
+    if _speedBoostActive then return end
+    _speedBoostActive = true
+    
+    local function getHumanoid()
         local char = LP.Character
-        if not char then return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        
-        -- 1) Boost WalkSpeed x2 (multiply current speed)
-        -- Save original speed on first run so we don't keep doubling
-        if not _originalSpeed then
-            _originalSpeed = hum.WalkSpeed -- e.g. 140
+        return char and char:FindFirstChildOfClass("Humanoid")
+    end
+    
+    local function getHRP()
+        local char = LP.Character
+        return char and char:FindFirstChild("HumanoidRootPart")
+    end
+    
+    -- TECHNIQUE 1: Hook getrawmetatable to spoof WalkSpeed reading
+    -- This makes anti-cheat think WalkSpeed is normal when it reads it
+    pcall(function()
+        if getrawmetatable and setreadonly and newcclosure then
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            local oldIndex = mt.__index
+            mt.__index = newcclosure(function(self, prop)
+                if _speedBoostActive and prop == "WalkSpeed" and self:IsA("Humanoid") then
+                    -- Return fake normal speed to anti-cheat
+                    return 22
+                end
+                return oldIndex(self, prop)
+            end)
+            print("[MoronHUB] Speed Boost: Metatable hook applied")
         end
-        -- Always set to original x2 (prevents infinite doubling)
-        hum.WalkSpeed = _originalSpeed * 2
     end)
     
-    -- 2) Speed up block descent after kick (make block fall faster)
+    -- TECHNIQUE 2: GetPropertyChangedSignal - re-apply speed when game resets it
     pcall(function()
-        -- Find the kicked block in workspace and increase its downward velocity
-        for _, obj in ipairs(WS:GetChildren()) do
-            if obj:IsA("Model") and (string.find(string.lower(obj.Name), "block") or string.find(string.lower(obj.Name), "lucky")) then
-                local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-                if primary and primary.Position.Y > 10 then
-                    -- Block is in the air, speed up its fall
-                    primary.CustomPhysicalProperties = PhysicalProperties.new(10, 0.1, 0, 0, 0)
-                    if primary.Anchored == false then
-                        primary.Velocity = primary.Velocity + Vector3.new(0, -100, 0)
+        local hum = getHumanoid()
+        if hum then
+            local conn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                if _speedBoostActive and hum.WalkSpeed ~= _targetSpeed then
+                    hum.WalkSpeed = _targetSpeed
+                end
+            end)
+            table.insert(_speedConnections, conn)
+            hum.WalkSpeed = _targetSpeed
+            print("[MoronHUB] Speed Boost: PropertyChanged listener active")
+        end
+    end)
+    
+    -- TECHNIQUE 3: Continuous WalkSpeed enforcement loop
+    local conn3 = game:GetService("RunService").Heartbeat:Connect(function()
+        if not _speedBoostActive then return end
+        pcall(function()
+            local hum = getHumanoid()
+            if hum then
+                hum.WalkSpeed = _targetSpeed
+            end
+        end)
+    end)
+    table.insert(_speedConnections, conn3)
+    
+    -- TECHNIQUE 4: Velocity boost - add extra velocity in movement direction
+    -- This works even if WalkSpeed is locked because it adds physics force
+    local conn4 = game:GetService("RunService").Heartbeat:Connect(function()
+        if not _speedBoostActive then return end
+        pcall(function()
+            local hrp = getHRP()
+            local hum = getHumanoid()
+            if not hrp or not hum then return end
+            
+            -- Only boost if player is actually moving
+            local moveDir = hum.MoveDirection
+            if moveDir.Magnitude > 0 then
+                -- Add velocity in movement direction (boost on top of normal speed)
+                local boostAmount = 20 -- Extra studs/s boost
+                hrp.Velocity = Vector3.new(
+                    moveDir.X * boostAmount + hrp.Velocity.X * 0.5,
+                    hrp.Velocity.Y,
+                    moveDir.Z * boostAmount + hrp.Velocity.Z * 0.5
+                )
+            end
+        end)
+    end)
+    table.insert(_speedConnections, conn4)
+    
+    -- Re-apply on respawn
+    local conn5 = LP.CharacterAdded:Connect(function(char)
+        if not _speedBoostActive then return end
+        task.wait(1)
+        pcall(function()
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.WalkSpeed = _targetSpeed
+                local conn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                    if _speedBoostActive and hum.WalkSpeed ~= _targetSpeed then
+                        hum.WalkSpeed = _targetSpeed
                     end
-                end
+                end)
+                table.insert(_speedConnections, conn)
             end
+        end)
+    end)
+    table.insert(_speedConnections, conn5)
+    
+    print("[MoronHUB] Speed Boost ACTIVATED! Target speed: " .. _targetSpeed)
+end
+
+local function DeactivateSpeedBoost()
+    _speedBoostActive = false
+    
+    -- Disconnect all connections
+    for _, conn in ipairs(_speedConnections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    _speedConnections = {}
+    
+    -- Restore metatable hook (remove spoof)
+    pcall(function()
+        if getrawmetatable and setreadonly then
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            -- The hook checks _speedBoostActive so it will pass through normally now
         end
     end)
     
-    -- 3) Reduce kick animation/cooldown by speeding up AnimationTrack
+    -- Reset WalkSpeed
     pcall(function()
-        local char = LP.Character
-        if not char then return end
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hum then return end
-        local animator = hum:FindFirstChildOfClass("Animator")
-        if animator then
-            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
-                if track.Speed < 2 then
-                    track:AdjustSpeed(2)
-                end
-            end
-        end
+        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = 22 end
     end)
     
-    -- 4) Try to set potion-related attributes on player (some games check attributes)
-    pcall(function()
-        LP:SetAttribute("FarmPotion", true)
-        LP:SetAttribute("SpeedBoost", true)
-        LP:SetAttribute("PotionActive", true)
-        LP:SetAttribute("FarmPotionExpiry", os.time() + 9999)
-    end)
-    pcall(function()
-        local char = LP.Character
-        if char then
-            char:SetAttribute("FarmPotion", true)
-            char:SetAttribute("SpeedBoost", true)
-            char:SetAttribute("SpeedMultiplier", 2)
-        end
-    end)
-    
+    print("[MoronHUB] Speed Boost DEACTIVATED")
 end
 
 local function LoopPotion()
+    ActivateSpeedBoost()
+    -- Keep alive while toggle is on
     while S.AutoPotion and S.Running do
-        DoAutoPotion()
-        task.wait(0.5) -- Apply continuously to maintain speed boost
+        task.wait(1)
     end
-    -- Reset speed when turned off
-    pcall(function()
-        local char = LP.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum and _originalSpeed then
-                hum.WalkSpeed = _originalSpeed
-            end
-        end
-        _originalSpeed = nil -- Reset so next toggle recaptures speed
-    end)
+    DeactivateSpeedBoost()
 end
 
 -- ══════════════════════════════════════════════════════════════
