@@ -1,6 +1,6 @@
 --[[
     ╔═══════════════════════════════════════════════════════════╗
-    ║              Moron HUB v1.0 — Premium Edition              ║
+    ║              Moron HUB v1.2 — Premium Edition              ║
     ║       Advanced Smart Farming for Kick A Lucky Block      ║
     ║          Engineered for Performance & Reliability         ║
     ║                    June 2026 • Stable                     ║
@@ -189,7 +189,7 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
                 {name = "\240\159\145\164 Player", value = "`" .. playerName .. "`", inline = true},
                 {name = "\240\159\147\138 Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. "`", inline = true},
             },
-            footer = {text = "Moron HUB v1.0 | Smart Farm"},
+            footer = {text = "Moron HUB v1.2 | Smart Farm"},
             timestamp = timestamp
         }
         
@@ -1991,7 +1991,7 @@ end
 
 local function CreateTab(name, order)
     local btn = Instance.new("TextButton", TabFrame)
-    btn.Size = UDim2.new(0, 60, 0, 24); btn.Position = UDim2.new(0, 0, 0, 2)
+    btn.Size = UDim2.new(0, 48, 0, 24); btn.Position = UDim2.new(0, 0, 0, 2)
     btn.BackgroundTransparency = 1; btn.BackgroundColor3 = Color.Primary; btn.BorderSizePixel = 0
     btn.Text = name; btn.TextColor3 = Color.TextDim
     btn.Font = Enum.Font.GothamBold; btn.TextSize = 10; btn.LayoutOrder = order
@@ -2190,9 +2190,11 @@ end
 -- ══════════════════════════════════════════════════════════════
 local P_Smart = CreateTab("Smart", 1)
 local P_Farm = CreateTab("Farm", 2)
-local P_Train = CreateTab("Train", 3)
-local P_Webhook = CreateTab("Webhook", 4)
-local P_Settings = CreateTab("Settings", 5)
+local P_Base = CreateTab("Base", 3)
+local P_Upgrade = CreateTab("Upgrade", 4)
+local P_Train = CreateTab("Train", 5)
+local P_Webhook = CreateTab("Hook", 6)
+local P_Settings = CreateTab("Config", 7)
 
 -- ═══════════════ SMART TAB ═══════════════
 Section(P_Smart, "SMART FARM", 1)
@@ -2399,28 +2401,37 @@ Section(P_Farm, "COLLECT & REBIRTH", 1)
 Toggle(P_Farm, "Auto Collect", "AutoCollect", function(v) if v then task.spawn(LoopCollect) end end, 2)
 Toggle(P_Farm, "Auto Rebirth", "AutoRebirth", function(v) if v then task.spawn(LoopRebirth) end end, 3)
 
-Section(P_Farm, "UPGRADES", 4)
-Toggle(P_Farm, "Auto Upgrade Brainrot", "AutoUpgrade", function(v) if v then task.spawn(LoopUpgrade) end end, 5)
-Toggle(P_Farm, "Auto Buy Speed", "AutoBuySpeed", function(v) if v then task.spawn(LoopBuySpeed) end end, 6)
-Toggle(P_Farm, "Auto Base Upgrade", "AutoBaseUpgrade", function(v) if v then task.spawn(LoopBaseUpgrade) end end, 7)
+Section(P_Farm, "SELL", 4)
+Toggle(P_Farm, "Auto Sell (Non-Fav)", "AutoSell", function(v) if v then task.spawn(LoopSell) end end, 5)
 
-Section(P_Farm, "AUTO FAVORITE / UNFAVORITE", 8)
-InfoLabel(P_Farm, "Favorite brainrot jika CPS >= Min Fav CPS", 9)
-Toggle(P_Farm, "Auto Favorite", "AutoFavorite", function(v) if v then task.spawn(LoopFav) end end, 10)
-NumInput(P_Farm, "Min Fav CPS", "MinFavCPS", "1000", 11)
-InfoLabel(P_Farm, "Unfavorite brainrot jika CPS < Min Unfav CPS", 12)
-NumInput(P_Farm, "Min Unfav CPS", "MinUnfavCPS", "100", 13)
+-- ═══════════════ BASE TAB ═══════════════
+Section(P_Base, "AUTO FAVORITE", 1)
+InfoLabel(P_Base, "Otomatis favorite brainrot jika CPS >= nilai di bawah", 2)
+Toggle(P_Base, "Auto Favorite", "AutoFavorite", function(v) if v then task.spawn(LoopFav) end end, 3)
+NumInput(P_Base, "Min CPS untuk Favorite", "MinFavCPS", "1000", 4)
 
-Section(P_Farm, "BASE MANAGEMENT", 14)
-InfoLabel(P_Farm, "Remove All = hapus semua brainrot dari base", 15)
-Button(P_Farm, "Remove All Brainrot From Base", function() DoRemoveAll() end, 16)
-InfoLabel(P_Farm, "Place Best = pasang brainrot terbaik (CPS Lv1 dari database)", 17)
-Button(P_Farm, "Place Best Brainrot (Global CPS)", function() DoPlaceBestGlobal() end, 18)
-Toggle(P_Farm, "Auto Place Best (Lv1 CPS)", "AutoPlaceBestGlobal", function(v) if v then task.spawn(LoopPlaceBestGlobal) end end, 19)
+Section(P_Base, "AUTO UNFAVORITE", 5)
+InfoLabel(P_Base, "Otomatis unfavorite brainrot jika CPS < nilai di bawah", 6)
+NumInput(P_Base, "Min CPS untuk Unfavorite", "MinUnfavCPS", "100", 7)
 
-Section(P_Farm, "SELL & PLOT", 20)
-Toggle(P_Farm, "Auto Sell (Non-Fav)", "AutoSell", function(v) if v then task.spawn(LoopSell) end end, 21)
-Toggle(P_Farm, "Auto Plot Upgrade", "AutoPlotUpgrade", function(v) if v then task.spawn(LoopPlotUpgrade) end end, 22)
+Section(P_Base, "REMOVE & PLACE", 8)
+InfoLabel(P_Base, "Hapus semua brainrot dari base satu per satu", 9)
+Button(P_Base, "Remove All Brainrot", function() DoRemoveAll() end, 10)
+InfoLabel(P_Base, "Pasang brainrot terbaik berdasarkan CPS Lv1 (database)", 11)
+Button(P_Base, "Place Best (CPS Lv1)", function() DoPlaceBestGlobal() end, 12)
+Toggle(P_Base, "Auto Place Best (Lv1 CPS)", "AutoPlaceBestGlobal", function(v) if v then task.spawn(LoopPlaceBestGlobal) end end, 13)
+
+Section(P_Base, "PLOT", 14)
+Toggle(P_Base, "Auto Plot Upgrade", "AutoPlotUpgrade", function(v) if v then task.spawn(LoopPlotUpgrade) end end, 15)
+
+-- ═══════════════ UPGRADE TAB ═══════════════
+Section(P_Upgrade, "BRAINROT UPGRADE", 1)
+InfoLabel(P_Upgrade, "Upgrade brainrot yang terpasang di base", 2)
+Toggle(P_Upgrade, "Auto Upgrade Brainrot", "AutoUpgrade", function(v) if v then task.spawn(LoopUpgrade) end end, 3)
+
+Section(P_Upgrade, "SPEED & BASE", 4)
+Toggle(P_Upgrade, "Auto Buy Speed", "AutoBuySpeed", function(v) if v then task.spawn(LoopBuySpeed) end end, 5)
+Toggle(P_Upgrade, "Auto Base Upgrade", "AutoBaseUpgrade", function(v) if v then task.spawn(LoopBaseUpgrade) end end, 6)
 
 -- ═══════════════ TRAIN TAB (WEIGHT LIFTING) ═══════════════
 Section(P_Train, "WEIGHT TRAINING", 1)
@@ -2790,9 +2801,9 @@ task.defer(function()
     local rc = 0; for _, v in pairs(R) do if v then rc = rc + 1 end end
     local cc = 0; for _ in pairs(CPSLookup) do cc = cc + 1 end
     local kr = GetKickReady()
-    Notify("Moron HUB v1.0", rc .. " remotes | " .. cc .. " CPS data | KickReady: " .. (kr and "OK" or "NOT FOUND"), 5)
+    Notify("Moron HUB v1.2", rc .. " remotes | " .. cc .. " CPS data | KickReady: " .. (kr and "OK" or "NOT FOUND"), 5)
     print("═══════════════════════════════════════")
-    print("  Moron HUB v1.0 - Premium Edition")
+    print("  Moron HUB v1.2 - Premium Edition")
     print("  Remotes: " .. rc)
     print("  CPS Database: " .. cc .. " brainrots")
     print("  KickReady: " .. (kr and kr:GetFullName() or "NOT FOUND"))
