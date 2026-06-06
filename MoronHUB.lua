@@ -459,12 +459,31 @@ end
 -- ══════════════════════════════════════════════════════════════
 -- PLOT FINDER
 -- ══════════════════════════════════════════════════════════════
+local _cachedPlot = nil
 local function GetPlot()
-    local plots = WS:FindFirstChild("Plots")
+    -- Return cached if still valid
+    if _cachedPlot and _cachedPlot.Parent then return _cachedPlot end
+    
+    -- Method 1: ClientPlotService (most reliable)
+    pcall(function()
+        local cps = require(RS.Modules.ServicesLoader.ClientPlotService)
+        if cps and cps.Model then _cachedPlot = cps.Model end
+    end)
+    if _cachedPlot then return _cachedPlot end
+    
+    -- Method 2: Scan Workspace.Plots with multiple attribute checks
+    local plots = WS:FindFirstChild("Plots") or WS:FindFirstChild("Plot")
     if not plots then return nil end
     for _, p in ipairs(plots:GetChildren()) do
-        local owner = p:GetAttribute("Owner") or p:GetAttribute("OwnerId") or p:GetAttribute("Player") or ""
-        if tostring(owner) == LP.Name or tostring(owner) == tostring(LP.UserId) or tostring(owner) == LP.DisplayName then
+        local owner = p:GetAttribute("Owner") or ""
+        local ownerId = p:GetAttribute("OwnerId") or p:GetAttribute("PlayerId") or ""
+        local player = p:GetAttribute("Player") or ""
+        if tostring(owner) == LP.Name or tostring(owner) == LP.DisplayName
+            or tostring(owner) == tostring(LP.UserId)
+            or tostring(ownerId) == tostring(LP.UserId)
+            or tostring(player) == LP.Name
+            or tostring(player) == tostring(LP.UserId) then
+            _cachedPlot = p
             return p
         end
     end
@@ -779,12 +798,94 @@ end
 
 local function DoFavorite(slotId)
     pcall(function()
+        -- Method 1: Direct remote event (most reliable)
+        if R.ToggleFav then
+            R.ToggleFav:FireServer(slotId)
+            return
+        end
+        -- Method 2: Network module
         if NetworkModule and NetworkModule.FireServer then
             NetworkModule.FireServer("ToggleFav", slotId)
-        elseif R.ToggleFav then
-            R.ToggleFav:FireServer(slotId)
+            return
+        end
+        -- Method 3: Try requiring Network fresh
+        pcall(function()
+            local net = require(RS.Shared.Packages.Network)
+            if net and net.FireServer then
+                net.FireServer("ToggleFav", slotId)
+            end
+        end)
+    end)
+end
+
+-- Helper: Detect mutation from a brainrot model (multiple methods)
+local function DetectMutation(model)
+    if not model then return "None" end
+    -- Method 1: Direct attribute on model
+    local mut = model:GetAttribute("Mutation")
+    if mut and mut ~= "" and mut ~= "None" then return mut end
+    -- Method 2: Parent attribute (PlacedPart or Slot)
+    if model.Parent then
+        mut = model.Parent:GetAttribute("Mutation")
+        if mut and mut ~= "" and mut ~= "None" then return mut end
+    end
+    -- Method 3: Check children names against known mutations
+    for _, child in ipairs(model:GetChildren()) do
+        if MutMult[child.Name] and child.Name ~= "None" then
+            return child.Name
+        end
+    end
+    return "None"
+end
+
+-- Helper: Detect if slot is favorited (multiple methods)
+local function IsFavorited(slot, model)
+    -- Method 1: Slot attribute
+    local fav = slot:GetAttribute("Favorite") or slot:GetAttribute("Favorited") or slot:GetAttribute("IsFavorite")
+    if fav == true then return true end
+    -- Method 2: Model attribute
+    if model then
+        fav = model:GetAttribute("Favorite") or model:GetAttribute("Favorited") or model:GetAttribute("IsFavorite")
+        if fav == true then return true end
+    end
+    -- Method 3: PlacedPart attribute
+    if model and model.Parent then
+        fav = model.Parent:GetAttribute("Favorite") or model.Parent:GetAttribute("Favorited")
+        if fav == true then return true end
+    end
+    -- Method 4: Check for visual indicator (star icon or highlight)
+    pcall(function()
+        for _, desc in ipairs(slot:GetDescendants()) do
+            if desc.Name:lower():find("fav") or desc.Name:lower():find("star") then
+                if desc:IsA("ImageLabel") or desc:IsA("Frame") then
+                    if desc.Visible then fav = true end
+                end
+            end
         end
     end)
+    return fav == true
+end
+
+-- Helper: Find brainrot model in a slot (multiple structures)
+local function FindBrainrotInSlot(slot)
+    -- Structure 1: Slot > PlacedPart > Model
+    local pp = slot:FindFirstChild("PlacedPart")
+    if pp then
+        local m = pp:FindFirstChildOfClass("Model")
+        if m then return m end
+        -- Maybe it's a MeshPart or Part directly
+        for _, child in ipairs(pp:GetChildren()) do
+            if child:IsA("Model") or child:IsA("MeshPart") then return child end
+        end
+    end
+    -- Structure 2: Slot > Model directly
+    local m = slot:FindFirstChildOfClass("Model")
+    if m then return m end
+    -- Structure 3: Any descendant model
+    for _, desc in ipairs(slot:GetChildren()) do
+        if desc:IsA("Model") and desc.Name ~= "PlacedPart" then return desc end
+    end
+    return nil
 end
 
 local function DoAutoFav()
@@ -794,22 +895,19 @@ local function DoAutoFav()
         local slots = plot:FindFirstChild("Slots")
         if not slots then return end
         for _, slot in ipairs(slots:GetChildren()) do
-            local p = slot:FindFirstChild("PlacedPart")
-            if p then
-                local m = p:FindFirstChildOfClass("Model")
-                if m then
-                    local name = m.Name
-                    local mut = m:GetAttribute("Mutation") or "None"
-                    local fav = slot:GetAttribute("Favorite") or m:GetAttribute("Favorite")
-                    local cps = CalcCPS(name, mut)
-                    local sn = tonumber(string.match(slot.Name, "%d+"))
-                    
-                    -- Advanced Logic
-                    if cps >= S.MinFavCPS and not fav then
-                        if sn then DoFavorite(sn); task.wait(0.2) end
-                    elseif cps < S.MinUnfavCPS and fav then
-                        if sn then DoFavorite(sn); task.wait(0.2) end -- Toggle off
-                    end
+            local model = FindBrainrotInSlot(slot)
+            if model then
+                local name = model.Name
+                local mut = DetectMutation(model)
+                local fav = IsFavorited(slot, model)
+                local cps = CalcCPS(name, mut)
+                local sn = tonumber(string.match(slot.Name, "%d+"))
+                
+                -- Advanced CPS-based Logic
+                if cps >= S.MinFavCPS and not fav then
+                    if sn then DoFavorite(sn); task.wait(0.3) end
+                elseif cps < S.MinUnfavCPS and fav then
+                    if sn then DoFavorite(sn); task.wait(0.3) end -- Toggle off
                 end
             end
         end
@@ -823,12 +921,14 @@ local function DoRemoveAll()
         local slots = plot:FindFirstChild("Slots")
         if not slots then return end
         for _, slot in ipairs(slots:GetChildren()) do
-            local p = slot:FindFirstChild("PlacedPart")
-            if p and p:FindFirstChildOfClass("Model") then
+            local model = FindBrainrotInSlot(slot)
+            if model then
                 local sn = tonumber(string.match(slot.Name, "%d+"))
-                if sn and R.Interact then
-                    R.Interact:FireServer("Remove", sn)
-                    task.wait(0.1)
+                if sn then
+                    if R.Interact then
+                        R.Interact:FireServer("Remove", sn)
+                    end
+                    task.wait(0.15)
                 end
             end
         end
@@ -1418,7 +1518,7 @@ local function Loop2xBonus()
     StopBonus2xListener()
 end
 local function LoopBuyWeight() while S.AutoBuyWeight and S.Running do DoBuyWeight(); task.wait(5) end end
-local function LoopFav() while S.AutoFavorite and S.Running do DoAutoFav(); task.wait(10) end end
+local function LoopFav() while S.AutoFavorite and S.Running do DoAutoFav(); task.wait(5) end end
 local function LoopSell() while S.AutoSell and S.Running do DoSellAll(); task.wait(15) end end
 local function LoopPlaceBest() while S.AutoPlaceBest and S.Running do DoPlaceBest(); task.wait(3) end end
 local function LoopPlaceBestGlobal() while S.AutoPlaceBestGlobal and S.Running do DoPlaceBestGlobal(); task.wait(30) end end
