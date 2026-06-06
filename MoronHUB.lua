@@ -523,6 +523,7 @@ pcall(function()
     R.Interact = FindRemote("rev_S_Interact")
     R.SummonEvent = FindRemote("rev_sbe")
     R.ToggleFav = FindRemote("rev_ToggleFav")
+    R.UsePotion = FindRemote("rev_UsePotion")
 end)
 
 -- ══════════════════════════════════════════════════════════════
@@ -1852,46 +1853,54 @@ end
 local function DoAutoPotion()
     pcall(function()
         -- The Farm Potion (x2 kick & run speed, 10 min) is from Rocky's Store (Update 5)
-        -- It's purchased via rev_Shop_Buy with the potion shop category
-        -- We try multiple known/possible argument formats
+        -- Console shows: NetworkModule.FireServer calls rev_UsePotion via WaitForChild
+        -- This means the correct call is: NetworkModule.FireServer("UsePotion", potionName)
+        -- The remote is rev_UsePotion in ReplicatedStorage.Shared.Packages.Network
         
+        local potionNames = {"Farm", "FarmPotion", "Farm Potion", "Speed", "SpeedPotion", "Speed Potion", "Admin", "AdminPotion"}
+        local allPotionNames = {"Farm", "Weight", "Cash", "Luck", "FarmPotion", "WeightPotion", "CashPotion", "LuckPotion"}
+        
+        -- Method 1 (PRIMARY): Use NetworkModule.FireServer("UsePotion", potionName)
+        -- This is confirmed from the stack trace showing rev_UsePotion
+        if NetworkModule and type(NetworkModule) == "table" and NetworkModule.FireServer then
+            for _, pName in ipairs(potionNames) do
+                pcall(function() NetworkModule.FireServer("UsePotion", pName) end)
+            end
+            -- Also try without argument (maybe it uses all potions)
+            pcall(function() NetworkModule.FireServer("UsePotion") end)
+            -- Try BuyAndUse pattern
+            for _, pName in ipairs(allPotionNames) do
+                pcall(function() NetworkModule.FireServer("BuyPotion", pName) end)
+            end
+            print("[MoronHUB] Auto Potion: Fired NetworkModule.FireServer UsePotion")
+        end
+        
+        -- Method 2: Direct fire rev_UsePotion remote if found
+        local usePotionRemote = R.UsePotion
+        if not usePotionRemote then
+            -- Try to find it fresh (it might be created dynamically)
+            pcall(function()
+                local nf = RS:FindFirstChild("Shared") and RS.Shared:FindFirstChild("Packages") and RS.Shared.Packages:FindFirstChild("Network")
+                if nf then usePotionRemote = nf:FindFirstChild("rev_UsePotion") end
+            end)
+        end
+        if usePotionRemote then
+            for _, pName in ipairs(potionNames) do
+                pcall(function() usePotionRemote:FireServer(pName) end)
+            end
+            pcall(function() usePotionRemote:FireServer() end)
+            print("[MoronHUB] Auto Potion: Fired rev_UsePotion directly")
+        end
+        
+        -- Method 3: Try rev_Shop_Buy with potion shop categories
         local shopRemote = R.ShopBuy
-        local interactRemote = R.Interact
-        
-        -- Method 1: Try rev_Shop_Buy with various potion category names
         if shopRemote then
-            -- Try common category names for the potion shop
-            local potionCategories = {"PotionShop", "Potions", "RockyShop", "Rocky"}
-            local potionNames = {"FarmPotion", "Farm Potion", "SpeedPotion", "Speed Potion", "Farm", "Speed"}
-            
+            local potionCategories = {"PotionShop", "Potions", "RockyShop", "Rocky", "Potion"}
             for _, cat in ipairs(potionCategories) do
-                for _, pName in ipairs(potionNames) do
+                for _, pName in ipairs(allPotionNames) do
                     pcall(function() shopRemote:FireServer(cat, pName) end)
                 end
             end
-            
-            -- Also try single-argument format
-            for _, pName in ipairs(potionNames) do
-                pcall(function() shopRemote:FireServer(pName) end)
-            end
-        end
-        
-        -- Method 2: Try rev_S_Interact with potion commands
-        if interactRemote then
-            local potionCmds = {"UsePotion", "BuyPotion", "FarmPotion", "UseFarmPotion", "Potion", "UseSpeedPotion"}
-            for _, cmd in ipairs(potionCmds) do
-                pcall(function() interactRemote:FireServer(cmd) end)
-                pcall(function() interactRemote:FireServer(cmd, "Farm") end)
-                pcall(function() interactRemote:FireServer(cmd, "FarmPotion") end)
-            end
-        end
-        
-        -- Method 3: Try NetworkModule.FireServer if available
-        if NetworkModule and type(NetworkModule) == "table" and NetworkModule.FireServer then
-            pcall(function() NetworkModule.FireServer("UsePotion", "Farm") end)
-            pcall(function() NetworkModule.FireServer("BuyPotion", "FarmPotion") end)
-            pcall(function() NetworkModule.FireServer("UsePotion", "FarmPotion") end)
-            pcall(function() NetworkModule.FireServer("Potion", "Farm") end)
         end
         
         -- Method 4: Try to find and click potion GUI button in PlayerGui
@@ -1903,11 +1912,9 @@ local function DoAutoPotion()
                     local btnText = ""
                     pcall(function() btnText = string.lower(gui.Text or "") end)
                     local btnName = string.lower(gui.Name or "")
-                    if string.find(btnText, "farm") or string.find(btnText, "potion") or string.find(btnText, "speed") 
-                       or string.find(btnName, "farmpotion") or string.find(btnName, "speedpotion") or string.find(btnName, "potion") then
-                        -- Check if it's visible and likely a potion button
-                        if gui.Visible ~= false and gui.Parent and gui.Parent.Visible ~= false then
-                            -- Fire button connections
+                    if string.find(btnName, "potion") or string.find(btnName, "farm") 
+                       or string.find(btnText, "potion") or string.find(btnText, "farm") then
+                        if gui.Visible ~= false then
                             if getconnections then
                                 pcall(function()
                                     for _, conn in pairs(getconnections(gui.MouseButton1Click)) do conn:Fire() end
@@ -1928,9 +1935,10 @@ local function DoAutoPotion()
             if nf then
                 for _, child in ipairs(nf:GetChildren()) do
                     if string.find(string.lower(child.Name), "potion") then
+                        for _, pName in ipairs(allPotionNames) do
+                            pcall(function() child:FireServer(pName) end)
+                        end
                         pcall(function() child:FireServer() end)
-                        pcall(function() child:FireServer("Farm") end)
-                        pcall(function() child:FireServer("FarmPotion") end)
                     end
                 end
             end
