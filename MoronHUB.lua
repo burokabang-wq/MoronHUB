@@ -1,0 +1,2693 @@
+--[[
+    ╔═══════════════════════════════════════════════════════════╗
+    ║              Moron HUB v1.0 — Premium Edition              ║
+    ║       Advanced Smart Farming for Kick A Lucky Block      ║
+    ║          Engineered for Performance & Reliability         ║
+    ║                    June 2026 • Stable                     ║
+    ╚═══════════════════════════════════════════════════════════╝
+]]
+
+-- ══════════════════════════════════════════════════════════════
+-- ANTI-DUPLICATE
+-- ══════════════════════════════════════════════════════════════
+local genv = (getgenv and getgenv()) or _G
+if genv.MoronHUB_Active then
+    pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", {Title="Moron HUB", Text="Already running! Press RightShift to toggle UI.", Duration=3}) end)
+    return
+end
+genv.MoronHUB_Active = true
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(0.5)
+
+-- ══════════════════════════════════════════════════════════════
+-- SERVICES
+-- ══════════════════════════════════════════════════════════════
+local Players = game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local WS = game:GetService("Workspace")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+local RunService = game:GetService("RunService")
+
+local LP = Players.LocalPlayer
+while not LP do LP = Players.LocalPlayer; task.wait(0.1) end
+
+-- ══════════════════════════════════════════════════════════════
+-- STATE MANAGEMENT
+-- ══════════════════════════════════════════════════════════════
+local S = {
+    Running = true,
+    Conns = {},
+    -- Smart Farm
+    SmartFarm = false,
+    TargetCPS = 5000,
+    RarityFilter = "Off", -- "Off" = only CPS check, or specific rarity names
+    Status = "Idle",
+    LastRoll = "---",
+    LastCPS = "---",
+    GoodCount = 0,
+    BadCount = 0,
+    -- Farm
+    KickPower = 100,
+    AutoCollect = false,
+    AutoRebirth = false,
+    AutoUpgrade = false,
+    AutoBuySpeed = false,
+    AutoBaseUpgrade = false,
+    AutoFavorite = false,
+    AutoSell = false,
+    AutoPlaceBest = false,
+    AutoPlotUpgrade = false,
+    MinFavCPS = 1000,
+    MinUnfavCPS = 100,
+    AutoPlaceBestGlobal = false,
+    -- Train (Weight Lifting)
+    AutoTrain = false,
+    AutoTrainCollect = false,
+    Auto2xBonus = false,
+    AutoBuyWeight = false,
+    TargetWeight = "None",
+    -- Player
+    GodMode = false,
+    AntiAFK = true,
+    FPSBoost = false,
+    -- Discord Webhook
+    WebhookEnabled = false,
+    WebhookURL = "",
+    -- Good Roll History (last 3)
+    GoodRollHistory = {}, -- {name, mutation, cps, rarity, reason, timestamp}
+}
+
+-- ══════════════════════════════════════════════════════════════
+-- SETTINGS SAVE/LOAD (Persistent Config)
+-- ══════════════════════════════════════════════════════════════
+local CONFIG_FILE = "MoronHUB_Config.json"
+
+-- Keys to save (exclude runtime-only state)
+local SAVE_KEYS = {
+    "TargetCPS", "RarityFilter", "KickPower",
+    "AutoCollect", "AutoRebirth", "AutoUpgrade", "AutoBuySpeed",
+    "AutoBaseUpgrade", "AutoFavorite", "AutoSell", "AutoPlaceBest", "AutoPlotUpgrade",
+    "MinFavCPS", "MinUnfavCPS", "AutoPlaceBestGlobal",
+    "AutoTrain", "AutoTrainCollect", "Auto2xBonus", "AutoBuyWeight", "TargetWeight",
+    "GodMode", "AntiAFK", "FPSBoost",
+    "WebhookEnabled", "WebhookURL"
+}
+
+local function SaveConfig()
+    pcall(function()
+        if not writefile then return end
+        local data = {}
+        for _, key in ipairs(SAVE_KEYS) do
+            data[key] = S[key]
+        end
+        local json = game:GetService("HttpService"):JSONEncode(data)
+        writefile(CONFIG_FILE, json)
+    end)
+end
+
+local function LoadConfig()
+    pcall(function()
+        if not readfile or not isfile then return end
+        if not isfile(CONFIG_FILE) then return end
+        local json = readfile(CONFIG_FILE)
+        local data = game:GetService("HttpService"):JSONDecode(json)
+        if type(data) == "table" then
+            for _, key in ipairs(SAVE_KEYS) do
+                if data[key] ~= nil then
+                    S[key] = data[key]
+                end
+            end
+        end
+    end)
+end
+
+-- Load saved config on startup
+LoadConfig()
+
+-- Auto-save config every 10 seconds
+task.spawn(function()
+    while S.Running do
+        task.wait(10)
+        SaveConfig()
+    end
+end)
+
+local function AddC(c) if c then table.insert(S.Conns, c) end end
+local function Notify(t, m, d) pcall(function() StarterGui:SetCore("SendNotification", {Title=t or "Moron HUB", Text=m or "", Duration=d or 3}) end) end
+
+-- Forward declarations
+local SendWebhook
+local AddGoodRollHistory
+
+-- ══════════════════════════════════════════════════════════════
+-- DISCORD WEBHOOK
+-- ══════════════════════════════════════════════════════════════
+local HttpService = game:GetService("HttpService")
+
+SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
+    if not S.WebhookEnabled or S.WebhookURL == "" then return end
+    
+    pcall(function()
+        local timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        local playerName = LP.DisplayName .. " (@" .. LP.Name .. ")"
+        
+        -- Inline number formatter (FmtNum not available yet at this scope)
+        local function FormatCPS(n)
+            if type(n) ~= "number" then return tostring(n or 0) end
+            if n < 1000 then return tostring(math.floor(n)) end
+            local suffixes = {"K","M","B","T","Q"}
+            local i = math.floor(math.log10(n) / 3)
+            if i < 1 then return tostring(math.floor(n)) end
+            local sf = suffixes[i] or ("e"..i*3)
+            return string.format("%.1f%s", n / (10^(i*3)), sf)
+        end
+        
+        -- Color based on rarity
+        local rarColors = {
+            Common = 11842740, Rare = 1997055, Epic = 10696166, Legendary = 16753920,
+            Mythic = 16711780, Godly = 16766720, Secret = 65480, Divine = 16777060,
+            Hacked = 65280, OG = 16737535, Celestial = 9882879, Exclusive = 16732240,
+            Eternal = 13148415
+        }
+        local embedColor = rarColors[brRarity] or 5793266
+        
+        local mutText = (brMutation and brMutation ~= "None" and brMutation ~= "") and brMutation or "No Mutation"
+        
+        local embed = {
+            title = "\240\159\142\137 GOOD ROLL!",
+            description = "A valuable brainrot has been collected!",
+            color = embedColor,
+            fields = {
+                {name = "\240\159\167\160 Brainrot", value = "`" .. (brName or "Unknown") .. "`", inline = true},
+                {name = "\240\159\146\142 Rarity", value = "`" .. (brRarity or "Unknown") .. "`", inline = true},
+                {name = "\240\159\167\172 Mutation", value = "`" .. mutText .. "`", inline = true},
+                {name = "\240\159\146\176 CPS", value = "`" .. FormatCPS(brCPS) .. "/s`", inline = true},
+                {name = "\226\156\133 Reason", value = "`" .. (reason or "CPS Target Met") .. "`", inline = false},
+                {name = "\240\159\145\164 Player", value = "`" .. playerName .. "`", inline = true},
+                {name = "\240\159\147\138 Stats", value = "`Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount .. "`", inline = true},
+            },
+            footer = {text = "Moron HUB v1.0 | Smart Farm"},
+            timestamp = timestamp
+        }
+        
+        local payload = HttpService:JSONEncode({
+            username = "Moron HUB",
+            avatar_url = "https://tr.rbxcdn.com/30DAY-AvatarHeadshot-" .. LP.UserId .. "-150x150.png",
+            embeds = {embed}
+        })
+        
+        -- Use request/http_request/syn.request depending on executor
+        local httpReq = (syn and syn.request) or (http and http.request) or http_request or request or fluxus_request
+        if httpReq then
+            httpReq({
+                Url = S.WebhookURL,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = payload
+            })
+        end
+    end)
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- GOOD ROLL HISTORY (Last 3)
+-- ══════════════════════════════════════════════════════════════
+AddGoodRollHistory = function(brName, brMutation, brCPS, brRarity, reason)
+    table.insert(S.GoodRollHistory, 1, {
+        name = brName or "Unknown",
+        mutation = brMutation or "None",
+        cps = brCPS or 0,
+        rarity = brRarity or "Unknown",
+        reason = reason or "",
+        time = os.date("%H:%M:%S")
+    })
+    -- Keep only last 3
+    while #S.GoodRollHistory > 3 do
+        table.remove(S.GoodRollHistory)
+    end
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- CHARACTER HELPERS
+-- ══════════════════════════════════════════════════════════════
+local function GetChar() return LP.Character end
+local function GetHRP() local c = GetChar(); return c and c:FindFirstChild("HumanoidRootPart") end
+local function GetHum() local c = GetChar(); return c and c:FindFirstChildOfClass("Humanoid") end
+local function IsAlive() local h = GetHum(); return h and h.Health > 0 end
+
+-- ══════════════════════════════════════════════════════════════
+-- KICK ZONE: workspace.Areas.KickReady
+-- ══════════════════════════════════════════════════════════════
+local function GetKickReady()
+    local areas = WS:FindFirstChild("Areas")
+    if areas then return areas:FindFirstChild("KickReady") end
+    return nil
+end
+
+local function CanKick()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return false end
+    local hud = pg:FindFirstChild("HUD")
+    if not hud then return false end
+    local kb = hud:FindFirstChild("KickButton")
+    return kb and kb.Visible
+end
+
+local function TeleportToKickZone()
+    local kr = GetKickReady()
+    if not kr then return false end
+    local hrp = GetHRP()
+    if not hrp then return false end
+    hrp.CFrame = kr.CFrame * CFrame.new(0, 3, 0)
+    return true
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- REMOTE FINDER
+-- ══════════════════════════════════════════════════════════════
+local NetworkModule = nil
+pcall(function() NetworkModule = require(RS.Shared.Packages.Network) end)
+
+local function FindRemote(name)
+    local r = nil
+    pcall(function()
+        local nf = RS:FindFirstChild("Shared") and RS.Shared:FindFirstChild("Packages") and RS.Shared.Packages:FindFirstChild("Network")
+        if nf then r = nf:FindFirstChild(name) end
+    end)
+    if not r then pcall(function() r = RS:FindFirstChild(name, true) end) end
+    return r
+end
+
+local R = {}
+pcall(function()
+    R.Kick = FindRemote("rev_KickEvent")
+    R.Collect = FindRemote("rev_B_Collect")
+    R.Upgrade = FindRemote("rev_B_Upgrade")
+    R.SpeedUpgrade = FindRemote("rev_SPEED_UPGRADE")
+    R.ShopBuy = FindRemote("rev_Shop_Buy")
+    R.WeightEquip = FindRemote("rev_WeightEquip")
+    R.SellAll = FindRemote("ref_B_SellAll")
+    R.Rebirth = FindRemote("rev_RebirthRequest")
+    R.BaseUpgrade = FindRemote("rev_bs_upgrade")
+    R.Interact = FindRemote("rev_S_Interact")
+    R.SummonEvent = FindRemote("rev_sbe")
+    R.ToggleFav = FindRemote("rev_ToggleFav")
+end)
+
+-- ══════════════════════════════════════════════════════════════
+-- ENTITIES DATA & CPS
+-- ══════════════════════════════════════════════════════════════
+local EntitiesData = nil
+local CPSLookup = {}
+
+-- Parse CPS value from EntitiesData format
+-- Can be: number, or table {First=X, Second=Y} or {[1]=X, [2]=Y} meaning X * 10^Y
+local function ParseCPSValue(v)
+    if type(v) == "number" then return v end
+    if type(v) == "table" then
+        local base = v.First or v.first or v[1] or 0
+        local exp = v.Second or v.second or v[2] or 0
+        return tonumber(base) * (10 ^ tonumber(exp))
+    end
+    return tonumber(v) or 0
+end
+
+-- Try multiple paths to find EntitiesData
+pcall(function()
+    -- Path 1: RS.Shared.Data.EntitiesData (most common)
+    local d = RS:FindFirstChild("Shared")
+    if d then
+        local data = d:FindFirstChild("Data")
+        if data then
+            local ed = data:FindFirstChild("EntitiesData")
+            if ed then EntitiesData = require(ed) end
+        end
+    end
+end)
+
+if not EntitiesData then
+    pcall(function()
+        -- Path 2: RS.Modules.Data.EntitiesData
+        local m = RS:FindFirstChild("Modules")
+        if m then
+            local data = m:FindFirstChild("Data")
+            if data then
+                local ed = data:FindFirstChild("EntitiesData")
+                if ed then EntitiesData = require(ed) end
+            end
+        end
+    end)
+end
+
+if not EntitiesData then
+    pcall(function()
+        -- Path 3: Search recursively
+        local ed = RS:FindFirstChild("EntitiesData", true)
+        if ed then EntitiesData = require(ed) end
+    end)
+end
+
+-- Build CPS lookup table
+if EntitiesData and EntitiesData.Brainrots then
+    for name, data in pairs(EntitiesData.Brainrots) do
+        pcall(function()
+            if data.CPS then
+                local cps = ParseCPSValue(data.CPS)
+                local imgId = data.Image or data.Icon or data.Thumbnail or data.ImageId or data.IconId or ""
+                if type(imgId) == "number" then imgId = "rbxassetid://" .. imgId end
+                CPSLookup[name] = {cps = cps, rarity = data.Rarity or "Unknown", image = imgId or ""}
+            end
+        end)
+    end
+end
+
+local MutMult = {
+    None=1, Golden=1.5, Diamond=2, Plasma=4, Molten=6, Radioactive=8,
+    Void=10, Shadow=12, Electrified=16, Rainbow=30, Virus=10, Wet=16,
+    Alien=20, Bacon=30, Enchanted=12, Phantom=35, Astral=35, Volcanic=35
+}
+
+local RarOrder = {
+    Common=1, Rare=2, Epic=3, Legendary=4, Mythic=5, Godly=6,
+    Secret=7, Divine=8, Hacked=9, OG=10, Celestial=11, Exclusive=12, Eternal=13
+}
+
+local function CalcCPS(name, mutation)
+    local d = CPSLookup[name]
+    local base = d and d.cps or 0
+    
+    -- If not found by exact name, try case-insensitive match
+    if base == 0 and name then
+        for k, v in pairs(CPSLookup) do
+            if string.lower(k) == string.lower(name) then
+                base = v.cps or 0
+                break
+            end
+        end
+    end
+    
+    -- If still 0, try to read CPS from the actual brainrot tool/model in game
+    if base == 0 and name then
+        pcall(function()
+            -- Check backpack tools
+            local backpack = LP:FindFirstChild("Backpack")
+            if backpack then
+                for _, tool in ipairs(backpack:GetChildren()) do
+                    if tool:IsA("Tool") and tool.Name == name then
+                        local cpsAttr = tool:GetAttribute("CPS") or tool:GetAttribute("CashPerSecond")
+                        if cpsAttr then base = tonumber(cpsAttr) or 0 end
+                    end
+                end
+            end
+            -- Check character equipped tool
+            local char = LP.Character
+            if char and base == 0 then
+                local tool = char:FindFirstChildOfClass("Tool")
+                if tool and tool.Name == name then
+                    local cpsAttr = tool:GetAttribute("CPS") or tool:GetAttribute("CashPerSecond")
+                    if cpsAttr then base = tonumber(cpsAttr) or 0 end
+                end
+            end
+        end)
+    end
+    
+    -- If still 0, try to find it in EntitiesData with partial match
+    if base == 0 and name and EntitiesData and EntitiesData.Brainrots then
+        pcall(function()
+            for k, v in pairs(EntitiesData.Brainrots) do
+                if string.find(string.lower(k), string.lower(name), 1, true) or
+                   string.find(string.lower(name), string.lower(k), 1, true) then
+                    if v.CPS then
+                        base = ParseCPSValue(v.CPS)
+                        break
+                    end
+                end
+            end
+        end)
+    end
+    
+    local mult = MutMult[mutation or "None"] or 1
+    return base * mult
+end
+
+local function GetRarity(name)
+    local d = CPSLookup[name]
+    if d then return d.rarity or "Unknown" end
+    -- Case-insensitive fallback
+    if name then
+        for k, v in pairs(CPSLookup) do
+            if string.lower(k) == string.lower(name) then
+                return v.rarity or "Unknown"
+            end
+        end
+    end
+    return "Unknown"
+end
+
+local function FmtNum(n)
+    if n < 1000 then return tostring(math.floor(n)) end
+    local s = {"K","M","B","T","Q","Qi","Sx","Sp","Oc","No","Dc"}
+    local i = math.floor(math.log10(n) / 3)
+    if i < 1 then return tostring(math.floor(n)) end
+    local sf = s[i] or ("e"..i*3)
+    return string.format("%.1f%s", n / (10^(i*3)), sf)
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- PLOT FINDER
+-- ══════════════════════════════════════════════════════════════
+local function GetPlot()
+    local plots = WS:FindFirstChild("Plots")
+    if not plots then return nil end
+    for _, p in ipairs(plots:GetChildren()) do
+        local owner = p:GetAttribute("Owner") or p:GetAttribute("OwnerId") or p:GetAttribute("Player") or ""
+        if tostring(owner) == LP.Name or tostring(owner) == tostring(LP.UserId) or tostring(owner) == LP.DisplayName then
+            return p
+        end
+    end
+    return nil
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- CORE ACTIONS
+-- ══════════════════════════════════════════════════════════════
+local function DoKick()
+    pcall(function()
+        if R.Kick then
+            local acc = 0.98
+            local pwr = (S.KickPower or 100) / 100
+            R.Kick:FireServer(acc, pwr)
+        end
+    end)
+end
+
+local function DoCollect()
+    pcall(function()
+        local plot = GetPlot()
+        if not plot then return end
+        local buttons = plot:FindFirstChild("Buttons")
+        if not buttons then return end
+        local hrp = GetHRP()
+        if not hrp then return end
+        for _, btn in ipairs(buttons:GetChildren()) do
+            if btn:IsA("BasePart") then
+                local slotNum = tonumber(string.match(btn.Name, "%d+"))
+                if slotNum then
+                    pcall(function()
+                        if firetouchinterest then
+                            firetouchinterest(hrp, btn, 0)
+                            firetouchinterest(hrp, btn, 1)
+                        end
+                    end)
+                    pcall(function() if R.Collect then R.Collect:FireServer(slotNum) end end)
+                    task.wait(0.05)
+                end
+            end
+        end
+    end)
+end
+
+local function DoSellAll()
+    pcall(function() if R.SellAll then R.SellAll:InvokeServer() end end)
+end
+
+local function DoRebirth()
+    pcall(function() if R.Rebirth then R.Rebirth:FireServer() end end)
+end
+
+local function DoUpgrade()
+    pcall(function()
+        local plot = GetPlot()
+        if not plot then return end
+        local slots = plot:FindFirstChild("Slots")
+        if not slots then return end
+        for _, slot in ipairs(slots:GetChildren()) do
+            local idx = tonumber(string.match(slot.Name, "%d+"))
+            if idx and R.Upgrade then R.Upgrade:FireServer(idx); task.wait(0.05) end
+        end
+    end)
+end
+
+local function DoBuySpeed()
+    pcall(function() if R.SpeedUpgrade then for _, l in ipairs({3,2,1}) do R.SpeedUpgrade:FireServer(l); task.wait(0.1) end end end)
+end
+
+local function DoBuyWeight()
+    pcall(function()
+        if R.ShopBuy and S.TargetWeight and S.TargetWeight ~= "None" then
+            R.ShopBuy:FireServer("WeightShop", S.TargetWeight)
+        end
+    end)
+end
+
+local function DoTrain()
+    pcall(function()
+        -- Equip the best WEIGHT tool from backpack (NOT brainrot tools)
+        local char = LP.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        
+        -- Get list of valid weight names from WeightModels
+        local weightNames = {}
+        pcall(function()
+            local wm = RS:FindFirstChild("Objects") and RS.Objects:FindFirstChild("WeightModels")
+            if wm then
+                for _, w in ipairs(wm:GetChildren()) do
+                    weightNames[w.Name] = true
+                end
+            end
+        end)
+        
+        -- Collect all tools from backpack + equipped
+        local allTools = {}
+        for _, tool in ipairs(LP.Backpack:GetChildren()) do
+            if tool:IsA("Tool") then table.insert(allTools, tool) end
+        end
+        local equipped = char:FindFirstChildOfClass("Tool")
+        if equipped then table.insert(allTools, equipped) end
+        
+        -- Find best weight tool (only tools whose name matches a weight model)
+        local bestWeight = nil
+        for _, tool in ipairs(allTools) do
+            if weightNames[tool.Name] then
+                bestWeight = tool
+            end
+        end
+        
+        -- If no WeightModels found, skip (don't equip random tools)
+        if not bestWeight then return end
+        
+        -- Check if already equipped
+        local currentTool = char:FindFirstChildOfClass("Tool")
+        if currentTool and currentTool.Name == bestWeight.Name then return end
+        
+        -- Fire WeightEquip remote
+        if R.WeightEquip then
+            pcall(function() R.WeightEquip:FireServer(bestWeight.Name) end)
+        end
+        -- Equip the tool if it's in backpack
+        if bestWeight.Parent == LP.Backpack then
+            hum:EquipTool(bestWeight)
+        end
+    end)
+end
+
+local function DoTrainCollect()
+    pcall(function()
+        -- Collect cash from plot buttons during training
+        local plot = GetPlot()
+        if not plot then return end
+        local buttons = plot:FindFirstChild("Buttons")
+        if not buttons then return end
+        local hrp = GetHRP()
+        if not hrp then return end
+        for _, btn in ipairs(buttons:GetChildren()) do
+            if btn:IsA("BasePart") then
+                local slotNum = tonumber(string.match(btn.Name, "%d+"))
+                if slotNum then
+                    pcall(function()
+                        if firetouchinterest then
+                            firetouchinterest(hrp, btn, 0)
+                            firetouchinterest(hrp, btn, 1)
+                        end
+                    end)
+                    pcall(function() if R.Collect then R.Collect:FireServer(slotNum) end end)
+                    task.wait(0.05)
+                end
+            end
+        end
+    end)
+end
+
+-- 2x Bonus Click System - Event-based + Polling hybrid
+-- Button spawns at random positions and gets recreated each time
+local _bonus2xConn = nil
+local _bonus2xDescConn = nil
+
+local function ClickButton(btn)
+    if not btn then return end
+    pcall(function()
+        -- Method 1: getconnections + Fire
+        if getconnections then
+            local conns = getconnections(btn.MouseButton1Click)
+            for _, c in ipairs(conns) do pcall(function() c:Fire() end) end
+            local actConns = getconnections(btn.Activated)
+            for _, c in ipairs(actConns) do pcall(function() c:Fire() end) end
+        end
+    end)
+    -- Method 2: firesignal
+    pcall(function()
+        if firesignal then
+            firesignal(btn.MouseButton1Click)
+            firesignal(btn.Activated)
+        end
+    end)
+    -- Method 3: VirtualInputManager click at button position
+    pcall(function()
+        local VIM = game:GetService("VirtualInputManager")
+        local pos = btn.AbsolutePosition
+        local size = btn.AbsoluteSize
+        local cx = pos.X + size.X / 2
+        local cy = pos.Y + size.Y / 2
+        VIM:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+        task.delay(0.03, function()
+            VIM:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+        end)
+    end)
+    -- Method 4: fireclick
+    pcall(function() if fireclick then fireclick(btn) end end)
+    -- Method 5: Direct fire events
+    pcall(function() btn.MouseButton1Click:Fire() end)
+    pcall(function() btn.Activated:Fire() end)
+end
+
+local function IsBonusButton(obj)
+    if not (obj:IsA("TextButton") or obj:IsA("ImageButton") or obj:IsA("Frame")) then
+        return false
+    end
+    local nm = obj.Name:lower()
+    if nm:find("bonus") or nm == "bonus" then return true end
+    if obj:IsA("TextButton") then
+        local txt = ""
+        pcall(function() txt = (obj.Text or ""):lower() end)
+        if txt:find("2x") or txt:find("x2") then return true end
+    end
+    return false
+end
+
+local function GetClickableFromBonus(obj)
+    -- If obj itself is clickable, return it
+    if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+        return obj
+    end
+    -- If it's a Frame, find first clickable child
+    for _, child in ipairs(obj:GetDescendants()) do
+        if child:IsA("TextButton") or child:IsA("ImageButton") then
+            return child
+        end
+    end
+    return nil
+end
+
+local function HandleBonusAppeared(obj)
+    if not S.Auto2xBonus then return end
+    if not IsBonusButton(obj) then return end
+    local btn = GetClickableFromBonus(obj)
+    if btn then
+        task.defer(function() ClickButton(btn) end)
+    end
+end
+
+local function StartBonus2xListener()
+    -- Stop previous listener
+    if _bonus2xConn then pcall(function() _bonus2xConn:Disconnect() end) end
+    if _bonus2xDescConn then pcall(function() _bonus2xDescConn:Disconnect() end) end
+    
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return end
+    
+    -- Listen for ANY new descendant added to PlayerGui
+    _bonus2xDescConn = pg.DescendantAdded:Connect(function(obj)
+        if not S.Auto2xBonus then return end
+        task.defer(function()
+            pcall(function()
+                if IsBonusButton(obj) then
+                    local btn = GetClickableFromBonus(obj)
+                    if btn then ClickButton(btn) end
+                elseif (obj:IsA("TextButton") or obj:IsA("ImageButton")) then
+                    -- Check if parent is Bonus
+                    local parent = obj.Parent
+                    if parent and parent.Name:lower():find("bonus") then
+                        ClickButton(obj)
+                    end
+                end
+            end)
+        end)
+    end)
+    
+    -- Also listen specifically on KickUpgrades if it exists
+    local ku = pg:FindFirstChild("KickUpgrades")
+    if ku then
+        _bonus2xConn = ku.ChildAdded:Connect(function(child)
+            if not S.Auto2xBonus then return end
+            task.defer(function()
+                pcall(function()
+                    if IsBonusButton(child) then
+                        local btn = GetClickableFromBonus(child)
+                        if btn then ClickButton(btn) end
+                    end
+                end)
+            end)
+        end)
+    end
+end
+
+local function StopBonus2xListener()
+    if _bonus2xConn then pcall(function() _bonus2xConn:Disconnect() end); _bonus2xConn = nil end
+    if _bonus2xDescConn then pcall(function() _bonus2xDescConn:Disconnect() end); _bonus2xDescConn = nil end
+end
+
+-- Polling fallback: also scan every 0.5s in case event missed it
+local function Do2xBonus()
+    pcall(function()
+        local pg = LP:FindFirstChild("PlayerGui")
+        if not pg then return end
+        for _, desc in ipairs(pg:GetDescendants()) do
+            if IsBonusButton(desc) then
+                local btn = GetClickableFromBonus(desc)
+                if btn then
+                    local vis = true
+                    pcall(function() vis = btn.Visible end)
+                    if vis then ClickButton(btn) end
+                end
+            end
+        end
+    end)
+end
+
+local function DoBaseUpgrade()
+    pcall(function() if R.BaseUpgrade then R.BaseUpgrade:FireServer() end end)
+end
+
+local function DoPlaceBest()
+    pcall(function() if R.Interact then R.Interact:FireServer("PlaceBest") end end)
+end
+
+local function DoFavorite(slotId)
+    pcall(function()
+        if NetworkModule and NetworkModule.FireServer then
+            NetworkModule.FireServer("ToggleFav", slotId)
+        elseif R.ToggleFav then
+            R.ToggleFav:FireServer(slotId)
+        end
+    end)
+end
+
+local function DoAutoFav()
+    pcall(function()
+        local plot = GetPlot()
+        if not plot then return end
+        local slots = plot:FindFirstChild("Slots")
+        if not slots then return end
+        for _, slot in ipairs(slots:GetChildren()) do
+            local p = slot:FindFirstChild("PlacedPart")
+            if p then
+                local m = p:FindFirstChildOfClass("Model")
+                if m then
+                    local name = m.Name
+                    local mut = m:GetAttribute("Mutation") or "None"
+                    local fav = slot:GetAttribute("Favorite") or m:GetAttribute("Favorite")
+                    local cps = CalcCPS(name, mut)
+                    local sn = tonumber(string.match(slot.Name, "%d+"))
+                    
+                    -- Advanced Logic
+                    if cps >= S.MinFavCPS and not fav then
+                        if sn then DoFavorite(sn); task.wait(0.2) end
+                    elseif cps < S.MinUnfavCPS and fav then
+                        if sn then DoFavorite(sn); task.wait(0.2) end -- Toggle off
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local function DoRemoveAll()
+    pcall(function()
+        local plot = GetPlot()
+        if not plot then return end
+        local slots = plot:FindFirstChild("Slots")
+        if not slots then return end
+        for _, slot in ipairs(slots:GetChildren()) do
+            local p = slot:FindFirstChild("PlacedPart")
+            if p and p:FindFirstChildOfClass("Model") then
+                local sn = tonumber(string.match(slot.Name, "%d+"))
+                if sn and R.Interact then
+                    R.Interact:FireServer("Remove", sn)
+                    task.wait(0.1)
+                end
+            end
+        end
+    end)
+end
+
+local function DoPlaceBestGlobal()
+    pcall(function()
+        -- 1. Get Inventory
+        local invRaw = LP:GetAttribute("Inventory") or ""
+        if invRaw == "" then return end
+        
+        -- 2. Parse Inventory into {name, mutation, globalCPS}
+        local items = {}
+        local parts = string.split(invRaw, ",")
+        for i = 1, #parts, 2 do
+            local name = parts[i] and string.gsub(parts[i], "^%s*(.-)%s*$", "%1")
+            local mut = parts[i+1] and string.gsub(parts[i+1], "^%s*(.-)%s*$", "%1") or "None"
+            if name and name ~= "" then
+                local lookup = CPSLookup[name]
+                local baseCPS = lookup and lookup.cps or 0
+                local mutMult = MutMult[mut] or 1
+                local globalCPS = baseCPS * mutMult
+                table.insert(items, {name = name, mutation = mut, globalCPS = globalCPS})
+            end
+        end
+        
+        -- 3. Sort by Global (Base) CPS
+        table.sort(items, function(a, b) return a.globalCPS > b.globalCPS end)
+        
+        -- 4. Get available slots
+        local plot = GetPlot()
+        if not plot then return end
+        local maxSlots = LP:GetAttribute("MaxSlots") or 0
+        
+        -- 5. Place one by one
+        DoRemoveAll()
+        task.wait(0.5)
+        
+        for i = 1, math.min(#items, maxSlots) do
+            local item = items[i]
+            if R.Interact then
+                R.Interact:FireServer("Place", item.name, item.mutation)
+                task.wait(0.1)
+            end
+        end
+    end)
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- SMART FARM SYSTEM
+-- ══════════════════════════════════════════════════════════════
+
+-- Parse InGame attribute: "Name1, Mut1, Name2, Mut2, ..."
+local function ParseInGame()
+    local results = {}
+    pcall(function()
+        local raw = LP:GetAttribute("InGame") or ""
+        if raw == "" then return end
+        local parts = string.split(raw, ",")
+        for i = 1, #parts, 2 do
+            local name = parts[i] and string.gsub(parts[i], "^%s*(.-)%s*$", "%1")
+            local mut = parts[i+1] and string.gsub(parts[i+1], "^%s*(.-)%s*$", "%1") or "None"
+            if mut == "" then mut = "None" end
+            if name and name ~= "" then
+                table.insert(results, {name = name, mutation = mut})
+            end
+        end
+    end)
+    return results
+end
+
+-- Check if any brainrot meets target (Rarity Priority + CPS)
+local function CheckMeetsTarget(brainrots)
+    -- STEP 1: Check RARITY PRIORITY first (if enabled)
+    -- If rarity filter is active and brainrot matches, auto-accept regardless of CPS
+    if S.RarityFilter and S.RarityFilter ~= "Off" then
+        local selectedRars = {}
+        for rar in string.gmatch(S.RarityFilter, "[^,]+") do
+            selectedRars[rar] = true
+        end
+        
+        for _, br in ipairs(brainrots) do
+            local brRarity = GetRarity(br.name)
+            if selectedRars[brRarity] then
+                -- RARITY MATCH! Auto-accept regardless of CPS
+                local cps = CalcCPS(br.name, br.mutation)
+                if cps == 0 and br.name and br.name ~= "" then cps = 1 end
+                return true, br, cps, "RARITY"
+            end
+        end
+    end
+    
+    -- STEP 2: Standard CPS check
+    for _, br in ipairs(brainrots) do
+        local cps = CalcCPS(br.name, br.mutation)
+        
+        -- If CPS database returned 0 (brainrot not found in data),
+        -- try reading CPS from the brainrot's attribute directly
+        if cps == 0 then
+            pcall(function()
+                -- Check if the brainrot model in workspace has a CPS attribute
+                local plot = WS:FindFirstChild("Plots")
+                if plot then
+                    for _, p in ipairs(plot:GetChildren()) do
+                        local slots = p:FindFirstChild("Slots")
+                        if slots then
+                            for _, slot in ipairs(slots:GetChildren()) do
+                                local placed = slot:FindFirstChild("PlacedPart")
+                                if placed then
+                                    local model = placed:FindFirstChildOfClass("Model")
+                                    if model and model.Name == br.name then
+                                        local attrCPS = model:GetAttribute("CPS") or model:GetAttribute("CashPerSecond")
+                                        if attrCPS then cps = tonumber(attrCPS) or 0 end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        
+        -- FALLBACK: If CPS is still 0 but brainrot EXISTS (name is not empty),
+        -- assume it has at least CPS = 1 so that a target of 1 will always pass
+        -- This handles cases where EntitiesData failed to load
+        if cps == 0 and br.name and br.name ~= "" and br.name ~= "Unknown" then
+            cps = 1
+        end
+        
+        -- CPS check
+        if cps >= S.TargetCPS then
+            return true, br, cps, "CPS"
+        end
+    end
+    -- Return the best CPS found even if it didn't meet target (for display purposes)
+    local bestFoundCPS = 0
+    for _, br in ipairs(brainrots) do
+        local c = CalcCPS(br.name, br.mutation)
+        if c == 0 and br.name and br.name ~= "" and br.name ~= "Unknown" then c = 1 end
+        if c > bestFoundCPS then bestFoundCPS = c end
+    end
+    return false, nil, bestFoundCPS, nil
+end
+
+-- Wait for respawn
+local function WaitRespawn()
+    local c = LP.Character
+    if c then
+        local h = c:FindFirstChildOfClass("Humanoid")
+        if h and h.Health > 0 then return true end
+    end
+    LP.CharacterAdded:Wait()
+    task.wait(1.5)
+    return true
+end
+
+-- God Mode System (hookfunction on TakeDamage - same method as Luxy Hub)
+local _godHooked = false
+local _godOriginalTakeDamage = nil
+local _godHealthConn = nil
+
+local function SetupGodHook()
+    if _godHooked then return end
+    pcall(function()
+        if hookfunction then
+            local dummyHum = Instance.new("Humanoid")
+            _godOriginalTakeDamage = hookfunction(dummyHum.TakeDamage, function(self, ...)
+                if S.GodMode then
+                    local char = LP.Character
+                    if char and self == char:FindFirstChildOfClass("Humanoid") then
+                        return nil -- Block all damage
+                    end
+                end
+                if _godOriginalTakeDamage then
+                    return _godOriginalTakeDamage(self, ...)
+                end
+            end)
+            dummyHum:Destroy()
+            _godHooked = true
+        end
+    end)
+end
+
+local function GodOn()
+    S.GodMode = true
+    -- Setup hook if not already done
+    SetupGodHook()
+    -- Also set health to huge as backup
+    pcall(function()
+        local h = GetHum()
+        if h then
+            h.MaxHealth = math.huge
+            h.Health = math.huge
+        end
+    end)
+    -- Connect HealthChanged to keep health at max
+    pcall(function()
+        if _godHealthConn then _godHealthConn:Disconnect() end
+        local h = GetHum()
+        if h then
+            _godHealthConn = h.HealthChanged:Connect(function(newHealth)
+                if S.GodMode and h and h.Parent then
+                    h.Health = h.MaxHealth
+                end
+            end)
+        end
+    end)
+end
+
+-- God Mode off
+local function GodOff()
+    S.GodMode = false
+    pcall(function()
+        if _godHealthConn then _godHealthConn:Disconnect(); _godHealthConn = nil end
+        local h = GetHum()
+        if h then h.MaxHealth = 100; h.Health = 100 end
+    end)
+end
+
+-- Teleport to plot (safe zone - waves don't reach here)
+local function TeleportToPlot()
+    local plot = GetPlot()
+    if not plot then return false end
+    local hrp = GetHRP()
+    if not hrp then return false end
+    -- Try to find the plot's primary part or center
+    local target = plot:FindFirstChild("Base") or plot:FindFirstChild("Platform") or plot.PrimaryPart
+    if target then
+        hrp.CFrame = target.CFrame * CFrame.new(0, 5, 0)
+    else
+        -- Fallback: use plot position + offset up
+        local pos = plot:GetBoundingBox()
+        hrp.CFrame = pos * CFrame.new(0, 5, 0)
+    end
+    return true
+end
+
+-- Wait until character dies (from wave naturally)
+-- Captures the CURRENT character/humanoid reference so a fast respawn doesn't confuse it
+local function WaitUntilDead()
+    local char = LP.Character
+    if not char then return true end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return true end
+    -- Watch THIS specific humanoid (not whatever LP.Character points to later)
+    local timeout = tick() + 120
+    while S.SmartFarm and S.Running and tick() < timeout do
+        if hum.Health <= 0 then return true end
+        if LP.Character ~= char then return true end -- character already swapped = we died
+        task.wait(0.2)
+    end
+    return true
+end
+
+-- Wait for character to fully respawn and be ready to use
+local function WaitForRespawn()
+    -- If already alive with a valid HRP, we're good
+    local char = LP.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hum and hrp and hum.Health > 0 then return true end
+    end
+    -- Wait for a NEW character to be added (with timeout for background scenarios)
+    local newChar = nil
+    local waitStart = tick()
+    while not newChar and tick() - waitStart < 30 do
+        newChar = LP.Character
+        if newChar then
+            local h = newChar:FindFirstChildOfClass("Humanoid")
+            local r = newChar:FindFirstChild("HumanoidRootPart")
+            if h and r and h.Health > 0 then break end
+            newChar = nil
+        end
+        -- Try CharacterAdded with short timeout
+        local conn
+        local got = false
+        conn = LP.CharacterAdded:Connect(function(c)
+            newChar = c
+            got = true
+        end)
+        task.wait(2)
+        conn:Disconnect()
+        if got then break end
+    end
+    -- Wait for essential parts to load
+    if newChar then
+        newChar:WaitForChild("HumanoidRootPart", 15)
+        newChar:WaitForChild("Humanoid", 15)
+    end
+    -- Extra wait to make sure everything is fully loaded
+    task.wait(2)
+    return true
+end
+
+-- Forward declaration for notification function (defined later with UI)
+local ShowRollNotification
+
+-- ═══ THE MAIN SMART FARM LOOP ═══
+local function SmartFarmLoop()
+    while S.SmartFarm and S.Running do
+        local ok, err = pcall(function()
+            
+            -- STEP 1: Make sure we are alive, if not wait for respawn
+            if not IsAlive() then
+                S.Status = "Waiting for respawn..."
+                WaitForRespawn()
+            end
+            
+            -- Double-check we're actually alive now
+            if not IsAlive() then
+                S.Status = "Still not alive, waiting..."
+                task.wait(2)
+                return
+            end
+            
+            -- STEP 2: Teleport to kick zone (CFrame - works in background)
+            S.Status = "Going to kick zone..."
+            local teleported = false
+            for attempt = 1, 5 do
+                teleported = TeleportToKickZone()
+                if teleported then break end
+                task.wait(1)
+            end
+            if not teleported then
+                S.Status = "ERROR: KickReady not found!"
+                task.wait(3)
+                return
+            end
+            task.wait(1)
+            
+            -- STEP 3: Wait until KickButton is visible (confirms ready to kick)
+            S.Status = "Waiting kick ready..."
+            local kickTimeout = tick() + 15
+            while not CanKick() and tick() < kickTimeout and S.SmartFarm and S.Running do
+                -- Keep teleporting to kick zone (CFrame based, no MoveTo)
+                TeleportToKickZone()
+                task.wait(1)
+            end
+            
+            if not CanKick() then
+                S.Status = "Kick not ready, retrying..."
+                task.wait(2)
+                return
+            end
+            
+            -- STEP 4: Kick the block!
+            S.Status = "Kicking block..."
+            DoKick()
+            task.wait(0.5)
+            
+            -- STEP 5: Wait for kick animation to finish
+            -- After kick, camera flies to block. We must wait until:
+            -- 1. Camera returns to our character (CameraSubject == Humanoid)
+            -- 2. InGame attribute is set (brainrot assigned)
+            -- 3. Waves exist (wave is chasing)
+            -- This is EXACTLY how Luxy Hub does it (checks CameraSubject ~= Humanoid -> continue)
+            S.Status = "Waiting for block to land..."
+            local WS = game:GetService("Workspace")
+            local cam = WS.CurrentCamera or WS:FindFirstChildOfClass("Camera")
+            local animTimeout = tick() + 15
+            
+            -- Wait until camera returns to our humanoid (animation done, we are now the brainrot)
+            while S.SmartFarm and S.Running and tick() < animTimeout do
+                local hum = GetHum()
+                if hum and cam and cam.CameraSubject == hum then
+                    -- Camera is back on us, check if InGame is set
+                    local inGame = LP:GetAttribute("InGame") or ""
+                    if inGame ~= "" then
+                        break -- Animation done, brainrot assigned, we are the brainrot now
+                    end
+                end
+                task.wait(0.2)
+            end
+            
+            task.wait(0.3) -- Small delay to ensure position is updated
+            
+            -- STEP 6: Parse brainrot from InGame attribute
+            S.Status = "Checking brainrot..."
+            local brainrots = ParseInGame()
+            
+            if #brainrots == 0 then
+                S.Status = "No brainrot detected, waiting..."
+                S.LastRoll = "None"
+                S.LastCPS = "0"
+                WaitUntilDead()
+                return
+            end
+            
+            -- STEP 7: Check CPS - does it meet our target?
+            local best = brainrots[1]
+            local meets, goodBr, goodCPS, matchType = CheckMeetsTarget(brainrots)
+            
+            local displayCPS = goodCPS or CalcCPS(best.name, best.mutation)
+            S.LastRoll = best.name .. " [" .. best.mutation .. "]"
+            S.LastCPS = FmtNum(displayCPS) .. "/s"
+            
+            if not meets then
+                -- ═══ BAD ROLL - CPS not enough & rarity not matched ═══
+                S.BadCount = S.BadCount + 1
+                local badDetail = "CPS " .. FmtNum(displayCPS) .. "/s < Target " .. FmtNum(S.TargetCPS) .. "/s"
+                if S.RarityFilter ~= "Off" then
+                    local brRarity = GetRarity(best.name)
+                    badDetail = badDetail .. " | Rarity: " .. brRarity .. " (not in filter)"
+                end
+                S.Status = "BAD: " .. best.name .. " (" .. FmtNum(displayCPS) .. "/s) - Running to wave..."
+                
+                -- Show professional notification
+                pcall(function() ShowRollNotification(false, best.name, best.mutation, displayCPS, badDetail) end)
+                
+                -- BAD ROLL - Wait for wave to naturally catch us
+                WaitUntilDead()
+                
+                S.Status = "Died! Waiting respawn..."
+                WaitForRespawn()
+                
+            else
+                -- ═══ GOOD ROLL - CPS meets target! ═══
+                S.GoodCount = S.GoodCount + 1
+                S.Status = "GOOD! " .. goodBr.name .. " (" .. FmtNum(goodCPS) .. "/s) - Running to kick zone!"
+                
+                -- Show professional notification
+                local goodReason
+                if matchType == "RARITY" then
+                    local brRarity = GetRarity(goodBr.name)
+                    goodReason = "Rarity Match: " .. brRarity .. " (auto-collected)"
+                else
+                    goodReason = "CPS " .. FmtNum(goodCPS) .. "/s >= Target " .. FmtNum(S.TargetCPS) .. "/s"
+                end
+                pcall(function() ShowRollNotification(true, goodBr.name, goodBr.mutation, goodCPS, goodReason) end)
+                
+                -- Send Discord webhook notification
+                local goodRarity = GetRarity(goodBr.name)
+                pcall(function() SendWebhook(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
+                
+                -- Add to good roll history (last 3)
+                pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
+                
+                -- NOW we are the brainrot, positioned FAR from kick zone.
+                -- Wave kill is SERVER-SIDE. No speed/SlowMode modification.
+                -- Just run normally with MoveTo using character's natural speed.
+                -- If wave catches us, we die and respawn.
+                
+                local kr = GetKickReady()
+                local hum = GetHum()
+                local hrp = GetHRP()
+                local char = LP.Character
+                
+                if kr and hum and hrp and char then
+                    local targetPos = kr.Position + Vector3.new(0, 3, 0)
+                    
+                    -- MoveTo works but game cancels it after ~18 seconds.
+                    -- Manual keyboard input NEVER gets cancelled.
+                    -- Strategy: Use MoveTo + rotate camera toward target,
+                    -- then when stuck, simulate W key press via VirtualInputManager.
+                    S.Status = "Running to kick zone..."
+                    local moveTimeout = tick() + 60
+                    local arrived = false
+                    
+                    -- First: rotate character to face target
+                    pcall(function()
+                        local dir = (targetPos - hrp.Position)
+                        dir = Vector3.new(dir.X, 0, dir.Z).Unit
+                        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + dir)
+                    end)
+                    
+                    -- Start with MoveTo
+                    hum:MoveTo(targetPos)
+                    
+                    -- Track position to detect stuck
+                    local lastPos = hrp.Position
+                    local stuckFrames = 0
+                    local usingVIM = false
+                    local VIM = nil
+                    pcall(function() VIM = game:GetService("VirtualInputManager") end)
+                    
+                    -- Monitor loop
+                    while S.SmartFarm and S.Running and tick() < moveTimeout do
+                        task.wait(0.5)
+                        
+                        local curChar = LP.Character
+                        if not curChar then break end
+                        local curHrp = curChar:FindFirstChild("HumanoidRootPart")
+                        local curHum = curChar:FindFirstChildOfClass("Humanoid")
+                        if not curHrp or not curHum then break end
+                        if curHum.Health <= 0 then break end
+                        
+                        -- Check distance
+                        local dist = (curHrp.Position - targetPos).Magnitude
+                        if dist < 8 then
+                            arrived = true
+                            break
+                        end
+                        
+                        -- Detect if stuck (position hasn't changed)
+                        local moved = (curHrp.Position - lastPos).Magnitude
+                        lastPos = curHrp.Position
+                        
+                        if moved < 0.5 then
+                            stuckFrames = stuckFrames + 1
+                        else
+                            stuckFrames = 0
+                        end
+                        
+                        if stuckFrames < 3 then
+                            -- Still moving, keep re-issuing MoveTo
+                            pcall(function() curHum:MoveTo(targetPos) end)
+                        else
+                            -- STUCK! MoveTo cancelled by game.
+                            -- Rotate toward target and simulate W key
+                            pcall(function()
+                                local dir = (targetPos - curHrp.Position)
+                                dir = Vector3.new(dir.X, 0, dir.Z).Unit
+                                curHrp.CFrame = CFrame.new(curHrp.Position, curHrp.Position + dir)
+                            end)
+                            
+                            -- Try VirtualInputManager to simulate W key
+                            if VIM then
+                                pcall(function()
+                                    -- Press W
+                                    VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
+                                end)
+                                usingVIM = true
+                            end
+                            
+                            -- Also try re-issuing MoveTo (might work again after rotation)
+                            pcall(function() curHum:MoveTo(targetPos) end)
+                        end
+                    end
+                    
+                    -- Cleanup: release W key if we were using VIM
+                    if usingVIM and VIM then
+                        pcall(function()
+                            VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
+                        end)
+                    end
+                    
+                    -- If we died (wave caught us), handle respawn
+                    if not arrived then
+                        S.Status = "Wave caught us, respawning..."
+                        WaitForRespawn()
+                    end
+                end
+                
+                task.wait(0.5)
+                
+                -- Wait until KickButton is visible (confirms we're in kick zone)
+                S.Status = "Waiting kick ready..."
+                local kickWait = tick() + 10
+                while not CanKick() and tick() < kickWait and S.SmartFarm and S.Running do
+                    task.wait(0.5)
+                end
+                
+                task.wait(0.3)
+                -- Loop continues from top -> kick again
+            end
+        end)
+        
+        if not ok then
+            S.Status = "Error: " .. tostring(err):sub(1, 40)
+            task.wait(3)
+        end
+        
+        task.wait(0.5)
+    end
+    S.Status = "Idle"
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- BASIC LOOPS
+-- ══════════════════════════════════════════════════════════════
+
+local function LoopCollect() while S.AutoCollect and S.Running do DoCollect(); task.wait(3) end end
+local function LoopRebirth() while S.AutoRebirth and S.Running do DoRebirth(); task.wait(2) end end
+local function LoopUpgrade() while S.AutoUpgrade and S.Running do DoUpgrade(); task.wait(5) end end
+local function LoopBuySpeed() while S.AutoBuySpeed and S.Running do DoBuySpeed(); task.wait(3) end end
+local function LoopBaseUpgrade() while S.AutoBaseUpgrade and S.Running do DoBaseUpgrade(); task.wait(3) end end
+local function LoopTrain() while S.AutoTrain and S.Running do DoTrain(); task.wait(1) end end
+local function LoopTrainCollect() while S.AutoTrainCollect and S.Running do DoTrainCollect(); task.wait(20) end end
+local function Loop2xBonus()
+    StartBonus2xListener()
+    while S.Auto2xBonus and S.Running do
+        Do2xBonus()
+        task.wait(0.5)
+    end
+    StopBonus2xListener()
+end
+local function LoopBuyWeight() while S.AutoBuyWeight and S.Running do DoBuyWeight(); task.wait(5) end end
+local function LoopFav() while S.AutoFavorite and S.Running do DoAutoFav(); task.wait(10) end end
+local function LoopSell() while S.AutoSell and S.Running do DoSellAll(); task.wait(15) end end
+local function LoopPlaceBest() while S.AutoPlaceBest and S.Running do DoPlaceBest(); task.wait(3) end end
+local function LoopPlaceBestGlobal() while S.AutoPlaceBestGlobal and S.Running do DoPlaceBestGlobal(); task.wait(30) end end
+local function LoopPlotUpgrade() while S.AutoPlotUpgrade and S.Running do pcall(function() if R.Interact then R.Interact:FireServer("PlotUpgrade") end end); task.wait(3) end end
+local function LoopGod()
+    SetupGodHook()
+    while S.GodMode and S.Running do
+        pcall(function()
+            local h = GetHum()
+            if h then
+                h.MaxHealth = math.huge
+                h.Health = math.huge
+                -- Reconnect HealthChanged if disconnected
+                if not _godHealthConn or not _godHealthConn.Connected then
+                    _godHealthConn = h.HealthChanged:Connect(function()
+                        if S.GodMode and h and h.Parent then
+                            h.Health = h.MaxHealth
+                        end
+                    end)
+                end
+            end
+        end)
+        task.wait(0.5)
+    end
+    GodOff()
+end
+
+
+-- ══════════════════════════════════════════════════════════════
+-- UI DESIGN
+-- ══════════════════════════════════════════════════════════════
+local Color = {
+    Bg       = Color3.fromRGB(15, 15, 22),
+    Surface  = Color3.fromRGB(24, 24, 36),
+    Card     = Color3.fromRGB(32, 32, 48),
+    Primary  = Color3.fromRGB(99, 102, 241),  -- Indigo
+    Success  = Color3.fromRGB(34, 197, 94),
+    Danger   = Color3.fromRGB(239, 68, 68),
+    Warning  = Color3.fromRGB(245, 158, 11),
+    Text     = Color3.fromRGB(240, 240, 250),
+    TextDim  = Color3.fromRGB(148, 148, 168),
+    Border   = Color3.fromRGB(55, 55, 75),
+    ToggleOn = Color3.fromRGB(34, 197, 94),
+    ToggleOff= Color3.fromRGB(55, 55, 75),
+    Input    = Color3.fromRGB(20, 20, 32),
+}
+
+-- Remove old UI
+pcall(function() for _, g in ipairs(game:GetService("CoreGui"):GetChildren()) do if g.Name == "MoronHUB" then g:Destroy() end end end)
+pcall(function() for _, g in ipairs(LP:WaitForChild("PlayerGui"):GetChildren()) do if g.Name == "MoronHUB" then g:Destroy() end end end)
+
+local SG = Instance.new("ScreenGui")
+SG.Name = "MoronHUB"; SG.ResetOnSpawn = false
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; SG.DisplayOrder = 9999
+
+local parented = false
+pcall(function() if syn and syn.protect_gui then syn.protect_gui(SG) end; SG.Parent = game:GetService("CoreGui"); parented = true end)
+if not parented then pcall(function() SG.Parent = game:GetService("CoreGui"); parented = true end) end
+if not parented then pcall(function() if gethui then SG.Parent = gethui(); parented = true end end) end
+if not parented then pcall(function() SG.Parent = LP:WaitForChild("PlayerGui"); parented = true end) end
+if not parented then warn("[MoronHUB] UI failed"); genv.MoronHUB_Active = false; return end
+
+-- ══════════════════════════════════════════════════════════════
+-- ROLL NOTIFICATION SYSTEM (Bottom-Right Professional Toast)
+-- ══════════════════════════════════════════════════════════════
+local NotifContainer = Instance.new("Frame", SG)
+NotifContainer.Name = "NotifContainer"
+NotifContainer.Size = UDim2.new(0, 320, 1, -20)
+NotifContainer.Position = UDim2.new(1, -330, 0, 10)
+NotifContainer.BackgroundTransparency = 1
+NotifContainer.ClipsDescendants = false
+local notifLayout = Instance.new("UIListLayout", NotifContainer)
+notifLayout.Padding = UDim.new(0, 8)
+notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
+notifLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+notifLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+
+-- Rarity color mapping
+local RarityColors = {
+    Common = Color3.fromRGB(180, 180, 180),
+    Rare = Color3.fromRGB(30, 144, 255),
+    Epic = Color3.fromRGB(163, 53, 238),
+    Legendary = Color3.fromRGB(255, 165, 0),
+    Mythic = Color3.fromRGB(255, 0, 100),
+    Godly = Color3.fromRGB(255, 215, 0),
+    Secret = Color3.fromRGB(0, 255, 200),
+    Divine = Color3.fromRGB(255, 255, 100),
+    Hacked = Color3.fromRGB(0, 255, 0),
+    OG = Color3.fromRGB(255, 100, 255),
+    Celestial = Color3.fromRGB(150, 200, 255),
+    Exclusive = Color3.fromRGB(255, 80, 80),
+    Eternal = Color3.fromRGB(200, 150, 255),
+    Unknown = Color3.fromRGB(148, 148, 168),
+}
+
+-- Mutation color mapping
+local MutationColors = {
+    None = Color3.fromRGB(148, 148, 168),
+    Golden = Color3.fromRGB(255, 215, 0),
+    Diamond = Color3.fromRGB(185, 242, 255),
+    Plasma = Color3.fromRGB(0, 200, 255),
+    Molten = Color3.fromRGB(255, 100, 0),
+    Radioactive = Color3.fromRGB(0, 255, 50),
+    Void = Color3.fromRGB(80, 0, 120),
+    Shadow = Color3.fromRGB(40, 0, 60),
+    Electrified = Color3.fromRGB(255, 255, 0),
+    Rainbow = Color3.fromRGB(255, 100, 200),
+    Virus = Color3.fromRGB(0, 200, 0),
+    Wet = Color3.fromRGB(0, 150, 255),
+    Alien = Color3.fromRGB(100, 255, 100),
+    Bacon = Color3.fromRGB(200, 100, 50),
+    Enchanted = Color3.fromRGB(200, 150, 255),
+    Phantom = Color3.fromRGB(180, 200, 255),
+    Astral = Color3.fromRGB(100, 150, 255),
+    Volcanic = Color3.fromRGB(255, 60, 0),
+}
+
+local function GetBrainrotImage(name)
+    -- Try CPSLookup first
+    local d = CPSLookup[name]
+    if d and d.image and d.image ~= "" then return d.image end
+    -- Case-insensitive
+    if name then
+        for k, v in pairs(CPSLookup) do
+            if string.lower(k) == string.lower(name) then
+                if v.image and v.image ~= "" then return v.image end
+            end
+        end
+    end
+    -- Try EntitiesData directly
+    if EntitiesData and EntitiesData.Brainrots and name then
+        local data = EntitiesData.Brainrots[name]
+        if data then
+            local img = data.Image or data.Icon or data.Thumbnail or data.ImageId or data.IconId
+            if img then
+                if type(img) == "number" then return "rbxassetid://" .. img end
+                if type(img) == "string" and img ~= "" then return img end
+            end
+        end
+    end
+    return ""
+end
+
+ShowRollNotification = function(isGood, brName, mutation, cps, reason)
+    local notif = Instance.new("Frame")
+    notif.Name = "RollNotif"
+    notif.Size = UDim2.new(1, 0, 0, 110)
+    notif.BackgroundColor3 = Color.Surface
+    notif.BorderSizePixel = 0
+    notif.BackgroundTransparency = 1
+    notif.Parent = NotifContainer
+    Instance.new("UICorner", notif).CornerRadius = UDim.new(0, 10)
+    
+    local stroke = Instance.new("UIStroke", notif)
+    stroke.Color = isGood and Color.Success or Color.Danger
+    stroke.Thickness = 1.5
+    stroke.Transparency = 1
+    
+    -- Inner padding
+    local pad = Instance.new("UIPadding", notif)
+    pad.PaddingLeft = UDim.new(0, 12); pad.PaddingRight = UDim.new(0, 12)
+    pad.PaddingTop = UDim.new(0, 10); pad.PaddingBottom = UDim.new(0, 10)
+    
+    -- Status bar (top color accent)
+    local accent = Instance.new("Frame", notif)
+    accent.Name = "Accent"
+    accent.Size = UDim2.new(1, 24, 0, 3)
+    accent.Position = UDim2.new(0, -12, 0, -10)
+    accent.BackgroundColor3 = isGood and Color.Success or Color.Danger
+    accent.BorderSizePixel = 0
+    accent.BackgroundTransparency = 1
+    local accentCorner = Instance.new("UICorner", accent)
+    accentCorner.CornerRadius = UDim.new(0, 10)
+    
+    -- Brainrot image
+    local imgFrame = Instance.new("Frame", notif)
+    imgFrame.Name = "ImgFrame"
+    imgFrame.Size = UDim2.new(0, 60, 0, 60)
+    imgFrame.Position = UDim2.new(0, 0, 0, 18)
+    imgFrame.BackgroundColor3 = Color.Card
+    imgFrame.BorderSizePixel = 0
+    imgFrame.BackgroundTransparency = 1
+    Instance.new("UICorner", imgFrame).CornerRadius = UDim.new(0, 8)
+    
+    local brImage = Instance.new("ImageLabel", imgFrame)
+    brImage.Name = "BrImage"
+    brImage.Size = UDim2.new(1, -8, 1, -8)
+    brImage.Position = UDim2.new(0, 4, 0, 4)
+    brImage.BackgroundTransparency = 1
+    brImage.ScaleType = Enum.ScaleType.Fit
+    brImage.ImageTransparency = 1
+    local imageId = GetBrainrotImage(brName)
+    if imageId ~= "" then brImage.Image = imageId end
+    
+    -- Right side info
+    -- Title (GOOD ROLL / BAD ROLL)
+    local title = Instance.new("TextLabel", notif)
+    title.Name = "Title"
+    title.Size = UDim2.new(1, -75, 0, 18)
+    title.Position = UDim2.new(0, 72, 0, 14)
+    title.BackgroundTransparency = 1
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 14
+    title.TextColor3 = isGood and Color.Success or Color.Danger
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Text = isGood and "GOOD ROLL" or "BAD ROLL"
+    title.TextTransparency = 1
+    
+    -- Brainrot name + mutation
+    local rarity = GetRarity(brName)
+    local rarColor = RarityColors[rarity] or RarityColors.Unknown
+    local mutColor = MutationColors[mutation] or MutationColors.None
+    
+    local nameLabel = Instance.new("TextLabel", notif)
+    nameLabel.Name = "BrName"
+    nameLabel.Size = UDim2.new(1, -75, 0, 16)
+    nameLabel.Position = UDim2.new(0, 72, 0, 34)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Font = Enum.Font.GothamSemibold
+    nameLabel.TextSize = 13
+    nameLabel.TextColor3 = rarColor
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.Text = brName
+    nameLabel.TextTransparency = 1
+    
+    -- Mutation line
+    local mutLabel = Instance.new("TextLabel", notif)
+    mutLabel.Name = "Mutation"
+    mutLabel.Size = UDim2.new(1, -75, 0, 14)
+    mutLabel.Position = UDim2.new(0, 72, 0, 52)
+    mutLabel.BackgroundTransparency = 1
+    mutLabel.Font = Enum.Font.Gotham
+    mutLabel.TextSize = 11
+    mutLabel.TextColor3 = mutColor
+    mutLabel.TextXAlignment = Enum.TextXAlignment.Left
+    mutLabel.Text = (mutation ~= "None" and mutation ~= "") and ("Mutation: " .. mutation) or "No Mutation"
+    mutLabel.TextTransparency = 1
+    
+    -- CPS line
+    local cpsLabel = Instance.new("TextLabel", notif)
+    cpsLabel.Name = "CPS"
+    cpsLabel.Size = UDim2.new(1, -75, 0, 14)
+    cpsLabel.Position = UDim2.new(0, 72, 0, 67)
+    cpsLabel.BackgroundTransparency = 1
+    cpsLabel.Font = Enum.Font.GothamSemibold
+    cpsLabel.TextSize = 12
+    cpsLabel.TextColor3 = Color.Text
+    cpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    cpsLabel.Text = "CPS: " .. FmtNum(cps) .. "/s"
+    cpsLabel.TextTransparency = 1
+    
+    -- Reason line
+    local reasonLabel = Instance.new("TextLabel", notif)
+    reasonLabel.Name = "Reason"
+    reasonLabel.Size = UDim2.new(1, -75, 0, 14)
+    reasonLabel.Position = UDim2.new(0, 72, 0, 83)
+    reasonLabel.BackgroundTransparency = 1
+    reasonLabel.Font = Enum.Font.Gotham
+    reasonLabel.TextSize = 10
+    reasonLabel.TextColor3 = Color.TextDim
+    reasonLabel.TextXAlignment = Enum.TextXAlignment.Left
+    reasonLabel.Text = reason
+    reasonLabel.TextTransparency = 1
+    reasonLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    -- Animate in
+    task.defer(function()
+        local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        
+        -- Fade in background
+        TweenService:Create(notif, tweenInfo, {BackgroundTransparency = 0.05}):Play()
+        TweenService:Create(stroke, tweenInfo, {Transparency = 0}):Play()
+        TweenService:Create(accent, tweenInfo, {BackgroundTransparency = 0}):Play()
+        TweenService:Create(imgFrame, tweenInfo, {BackgroundTransparency = 0}):Play()
+        
+        -- Fade in text
+        TweenService:Create(title, tweenInfo, {TextTransparency = 0}):Play()
+        TweenService:Create(nameLabel, tweenInfo, {TextTransparency = 0}):Play()
+        TweenService:Create(mutLabel, tweenInfo, {TextTransparency = 0}):Play()
+        TweenService:Create(cpsLabel, tweenInfo, {TextTransparency = 0}):Play()
+        TweenService:Create(reasonLabel, tweenInfo, {TextTransparency = 0}):Play()
+        TweenService:Create(brImage, tweenInfo, {ImageTransparency = 0}):Play()
+        
+        -- Auto dismiss after 6 seconds
+        task.wait(6)
+        
+        local fadeOut = TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        TweenService:Create(notif, fadeOut, {BackgroundTransparency = 1}):Play()
+        TweenService:Create(stroke, fadeOut, {Transparency = 1}):Play()
+        TweenService:Create(accent, fadeOut, {BackgroundTransparency = 1}):Play()
+        TweenService:Create(imgFrame, fadeOut, {BackgroundTransparency = 1}):Play()
+        TweenService:Create(title, fadeOut, {TextTransparency = 1}):Play()
+        TweenService:Create(nameLabel, fadeOut, {TextTransparency = 1}):Play()
+        TweenService:Create(mutLabel, fadeOut, {TextTransparency = 1}):Play()
+        TweenService:Create(cpsLabel, fadeOut, {TextTransparency = 1}):Play()
+        TweenService:Create(reasonLabel, fadeOut, {TextTransparency = 1}):Play()
+        TweenService:Create(brImage, fadeOut, {ImageTransparency = 1}):Play()
+        
+        task.wait(0.6)
+        notif:Destroy()
+    end)
+end
+
+-- Main Window
+local Win = Instance.new("Frame", SG)
+Win.Name = "Win"; Win.Size = UDim2.new(0, 380, 0, 520)
+Win.Position = UDim2.new(0.5, -190, 0.5, -260)
+Win.BackgroundColor3 = Color.Bg; Win.BorderSizePixel = 0
+Instance.new("UICorner", Win).CornerRadius = UDim.new(0, 12)
+Instance.new("UIStroke", Win).Color = Color.Border
+
+-- Shadow
+local Shadow = Instance.new("ImageLabel", Win)
+Shadow.Size = UDim2.new(1, 30, 1, 30); Shadow.Position = UDim2.new(0, -15, 0, -15)
+Shadow.BackgroundTransparency = 1; Shadow.Image = "rbxassetid://6015897843"
+Shadow.ImageColor3 = Color3.new(0,0,0); Shadow.ImageTransparency = 0.5
+Shadow.ScaleType = Enum.ScaleType.Slice; Shadow.SliceCenter = Rect.new(49,49,450,450)
+Shadow.ZIndex = -1
+
+-- Header
+local Header = Instance.new("Frame", Win)
+Header.Size = UDim2.new(1, 0, 0, 44); Header.BackgroundColor3 = Color.Surface; Header.BorderSizePixel = 0
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 12)
+local hFix = Instance.new("Frame", Header); hFix.Size = UDim2.new(1,0,0,12); hFix.Position = UDim2.new(0,0,1,-12); hFix.BackgroundColor3 = Color.Surface; hFix.BorderSizePixel = 0
+
+local Title = Instance.new("TextLabel", Header)
+Title.Size = UDim2.new(1, -90, 1, 0); Title.Position = UDim2.new(0, 16, 0, 0)
+Title.BackgroundTransparency = 1; Title.Text = "Moron HUB"
+Title.TextColor3 = Color.Text; Title.Font = Enum.Font.GothamBlack; Title.TextSize = 15
+Title.TextXAlignment = Enum.TextXAlignment.Left
+
+local VerLbl = Instance.new("TextLabel", Header)
+VerLbl.Size = UDim2.new(0, 40, 0, 16); VerLbl.Position = UDim2.new(0, 110, 0.5, -8)
+VerLbl.BackgroundColor3 = Color.Primary; VerLbl.BorderSizePixel = 0
+VerLbl.Text = "v1.0"; VerLbl.TextColor3 = Color.Text; VerLbl.Font = Enum.Font.GothamBold; VerLbl.TextSize = 9
+Instance.new("UICorner", VerLbl).CornerRadius = UDim.new(0, 4)
+
+local CloseBtn = Instance.new("TextButton", Header)
+CloseBtn.Size = UDim2.new(0, 28, 0, 28); CloseBtn.Position = UDim2.new(1, -36, 0.5, -14)
+CloseBtn.BackgroundColor3 = Color.Danger; CloseBtn.BorderSizePixel = 0; CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color.Text; CloseBtn.Font = Enum.Font.GothamBold; CloseBtn.TextSize = 12
+Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 6)
+
+local MinBtn = Instance.new("TextButton", Header)
+MinBtn.Size = UDim2.new(0, 28, 0, 28); MinBtn.Position = UDim2.new(1, -68, 0.5, -14)
+MinBtn.BackgroundColor3 = Color.Warning; MinBtn.BorderSizePixel = 0; MinBtn.Text = "-"
+MinBtn.TextColor3 = Color.Text; MinBtn.Font = Enum.Font.GothamBold; MinBtn.TextSize = 14
+Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 6)
+
+-- Player Profile Card
+local ProfileCard = Instance.new("Frame", Win)
+ProfileCard.Name = "ProfileCard"
+ProfileCard.Size = UDim2.new(1, -16, 0, 56)
+ProfileCard.Position = UDim2.new(0, 8, 0, 48)
+ProfileCard.BackgroundColor3 = Color.Surface
+ProfileCard.BorderSizePixel = 0
+Instance.new("UICorner", ProfileCard).CornerRadius = UDim.new(0, 8)
+
+-- Avatar Image (circular)
+local AvatarFrame = Instance.new("Frame", ProfileCard)
+AvatarFrame.Name = "AvatarFrame"
+AvatarFrame.Size = UDim2.new(0, 40, 0, 40)
+AvatarFrame.Position = UDim2.new(0, 8, 0.5, -20)
+AvatarFrame.BackgroundColor3 = Color.Card
+AvatarFrame.BorderSizePixel = 0
+Instance.new("UICorner", AvatarFrame).CornerRadius = UDim.new(1, 0) -- Circle
+
+local AvatarImg = Instance.new("ImageLabel", AvatarFrame)
+AvatarImg.Name = "Avatar"
+AvatarImg.Size = UDim2.new(1, -4, 1, -4)
+AvatarImg.Position = UDim2.new(0, 2, 0, 2)
+AvatarImg.BackgroundTransparency = 1
+AvatarImg.ScaleType = Enum.ScaleType.Fit
+pcall(function()
+    local thumbUrl = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=150&height=150&format=png"
+    -- Use Players:GetUserThumbnailAsync for reliable avatar
+    local thumbType = Enum.ThumbnailType.HeadShot
+    local thumbSize = Enum.ThumbnailSize.Size150x150
+    local content, isReady = Players:GetUserThumbnailAsync(LP.UserId, thumbType, thumbSize)
+    AvatarImg.Image = content
+end)
+local avatarCorner = Instance.new("UICorner", AvatarImg)
+avatarCorner.CornerRadius = UDim.new(1, 0)
+
+-- Online indicator (green dot)
+local OnlineDot = Instance.new("Frame", AvatarFrame)
+OnlineDot.Name = "OnlineDot"
+OnlineDot.Size = UDim2.new(0, 10, 0, 10)
+OnlineDot.Position = UDim2.new(1, -10, 1, -10)
+OnlineDot.BackgroundColor3 = Color.Success
+OnlineDot.BorderSizePixel = 0
+Instance.new("UICorner", OnlineDot).CornerRadius = UDim.new(1, 0)
+local dotStroke = Instance.new("UIStroke", OnlineDot)
+dotStroke.Color = Color.Surface; dotStroke.Thickness = 2
+
+-- Display Name
+local DisplayName = Instance.new("TextLabel", ProfileCard)
+DisplayName.Name = "DisplayName"
+DisplayName.Size = UDim2.new(1, -120, 0, 18)
+DisplayName.Position = UDim2.new(0, 56, 0, 10)
+DisplayName.BackgroundTransparency = 1
+DisplayName.Font = Enum.Font.GothamBold
+DisplayName.TextSize = 13
+DisplayName.TextColor3 = Color.Text
+DisplayName.TextXAlignment = Enum.TextXAlignment.Left
+DisplayName.TextTruncate = Enum.TextTruncate.AtEnd
+pcall(function() DisplayName.Text = LP.DisplayName or LP.Name end)
+
+-- Username
+local Username = Instance.new("TextLabel", ProfileCard)
+Username.Name = "Username"
+Username.Size = UDim2.new(1, -120, 0, 14)
+Username.Position = UDim2.new(0, 56, 0, 30)
+Username.BackgroundTransparency = 1
+Username.Font = Enum.Font.Gotham
+Username.TextSize = 10
+Username.TextColor3 = Color.TextDim
+Username.TextXAlignment = Enum.TextXAlignment.Left
+Username.TextTruncate = Enum.TextTruncate.AtEnd
+pcall(function() Username.Text = "@" .. LP.Name end)
+
+-- Status badge (right side)
+local StatusBadge = Instance.new("Frame", ProfileCard)
+StatusBadge.Name = "StatusBadge"
+StatusBadge.Size = UDim2.new(0, 55, 0, 20)
+StatusBadge.Position = UDim2.new(1, -63, 0.5, -10)
+StatusBadge.BackgroundColor3 = Color.Success
+StatusBadge.BorderSizePixel = 0
+Instance.new("UICorner", StatusBadge).CornerRadius = UDim.new(0, 4)
+
+local StatusText = Instance.new("TextLabel", StatusBadge)
+StatusText.Name = "StatusText"
+StatusText.Size = UDim2.new(1, 0, 1, 0)
+StatusText.BackgroundTransparency = 1
+StatusText.Font = Enum.Font.GothamBold
+StatusText.TextSize = 9
+StatusText.TextColor3 = Color3.fromRGB(255, 255, 255)
+StatusText.Text = "ACTIVE"
+
+-- Tab Bar
+local TabFrame = Instance.new("Frame", Win)
+TabFrame.Size = UDim2.new(1, -16, 0, 28); TabFrame.Position = UDim2.new(0, 8, 0, 108)
+TabFrame.BackgroundColor3 = Color.Surface; TabFrame.BorderSizePixel = 0
+Instance.new("UICorner", TabFrame).CornerRadius = UDim.new(0, 6)
+local tabLayout = Instance.new("UIListLayout", TabFrame)
+tabLayout.FillDirection = Enum.FillDirection.Horizontal; tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+tabLayout.Padding = UDim.new(0, 2)
+Instance.new("UIPadding", TabFrame).PaddingLeft = UDim.new(0, 2)
+
+-- Content Area
+local ContentFrame = Instance.new("Frame", Win)
+ContentFrame.Size = UDim2.new(1, -16, 1, -144); ContentFrame.Position = UDim2.new(0, 8, 0, 140)
+ContentFrame.BackgroundTransparency = 1; ContentFrame.ClipsDescendants = true
+
+-- ══════════════════════════════════════════════════════════════
+-- UI BUILDER
+-- ══════════════════════════════════════════════════════════════
+local Pages, TabBtns = {}, {}
+local ActiveTab = nil
+
+local function SwitchTab(name)
+    for n, btn in pairs(TabBtns) do
+        btn.BackgroundColor3 = n == name and Color.Primary or Color3.new(0,0,0)
+        btn.BackgroundTransparency = n == name and 0 or 1
+        btn.TextColor3 = n == name and Color.Text or Color.TextDim
+    end
+    for n, page in pairs(Pages) do page.Visible = (n == name) end
+    ActiveTab = name
+end
+
+local function CreateTab(name, order)
+    local btn = Instance.new("TextButton", TabFrame)
+    btn.Size = UDim2.new(0, 60, 0, 24); btn.Position = UDim2.new(0, 0, 0, 2)
+    btn.BackgroundTransparency = 1; btn.BackgroundColor3 = Color.Primary; btn.BorderSizePixel = 0
+    btn.Text = name; btn.TextColor3 = Color.TextDim
+    btn.Font = Enum.Font.GothamBold; btn.TextSize = 10; btn.LayoutOrder = order
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    
+    local page = Instance.new("ScrollingFrame", ContentFrame)
+    page.Size = UDim2.new(1, 0, 1, 0); page.BackgroundTransparency = 1
+    page.ScrollBarThickness = 2; page.ScrollBarImageColor3 = Color.Primary
+    page.BorderSizePixel = 0; page.Visible = false
+    page.CanvasSize = UDim2.new(0, 0, 0, 0); page.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local ly = Instance.new("UIListLayout", page); ly.Padding = UDim.new(0, 5); ly.SortOrder = Enum.SortOrder.LayoutOrder
+    Instance.new("UIPadding", page).PaddingTop = UDim.new(0, 2)
+    
+    Pages[name] = page; TabBtns[name] = btn
+    btn.MouseButton1Click:Connect(function() SwitchTab(name) end)
+    return page
+end
+
+local function Section(parent, text, order)
+    local lbl = Instance.new("TextLabel", parent)
+    lbl.Size = UDim2.new(1, 0, 0, 18); lbl.BackgroundTransparency = 1
+    lbl.Text = string.upper(text); lbl.TextColor3 = Color.Primary
+    lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 9
+    lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.LayoutOrder = order
+end
+
+local function Toggle(parent, text, key, cb, order)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, 0, 0, 32); row.BackgroundColor3 = Color.Card; row.BorderSizePixel = 0; row.LayoutOrder = order
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(1, -80, 1, 0); lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1; lbl.Text = text
+    lbl.TextColor3 = Color.Text; lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    local on = S[key] or false
+    
+    local pill = Instance.new("Frame", row)
+    pill.Size = UDim2.new(0, 40, 0, 20); pill.Position = UDim2.new(1, -52, 0.5, -10)
+    pill.BackgroundColor3 = on and Color.ToggleOn or Color.ToggleOff; pill.BorderSizePixel = 0
+    Instance.new("UICorner", pill).CornerRadius = UDim.new(1, 0)
+    
+    local circle = Instance.new("Frame", pill)
+    circle.Size = UDim2.new(0, 16, 0, 16)
+    circle.Position = on and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+    circle.BackgroundColor3 = Color.Text; circle.BorderSizePixel = 0
+    Instance.new("UICorner", circle).CornerRadius = UDim.new(1, 0)
+    
+    local hitbox = Instance.new("TextButton", row)
+    hitbox.Size = UDim2.new(1, 0, 1, 0); hitbox.BackgroundTransparency = 1; hitbox.Text = ""
+    
+    hitbox.MouseButton1Click:Connect(function()
+        on = not on; S[key] = on
+        TweenService:Create(pill, TweenInfo.new(0.2), {BackgroundColor3 = on and Color.ToggleOn or Color.ToggleOff}):Play()
+        TweenService:Create(circle, TweenInfo.new(0.2), {Position = on and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)}):Play()
+        if cb then pcall(cb, on) end
+    end)
+end
+
+local function NumInput(parent, text, key, placeholder, order)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, 0, 0, 32); row.BackgroundColor3 = Color.Card; row.BorderSizePixel = 0; row.LayoutOrder = order
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(0.55, 0, 1, 0); lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1; lbl.Text = text
+    lbl.TextColor3 = Color.Text; lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local box = Instance.new("TextBox", row)
+    box.Size = UDim2.new(0.38, 0, 0, 22); box.Position = UDim2.new(0.58, 0, 0.5, -11)
+    box.BackgroundColor3 = Color.Input; box.BorderSizePixel = 0
+    box.Text = tostring(S[key] or ""); box.PlaceholderText = placeholder or "Enter number"
+    box.TextColor3 = Color.Primary; box.PlaceholderColor3 = Color.TextDim
+    box.Font = Enum.Font.GothamBold; box.TextSize = 11; box.ClearTextOnFocus = false
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 4)
+    Instance.new("UIStroke", box).Color = Color.Border
+    
+    box.FocusLost:Connect(function()
+        local num = tonumber(box.Text)
+        if num then S[key] = math.floor(num); box.Text = tostring(math.floor(num))
+        else box.Text = tostring(S[key] or 0) end
+    end)
+    
+    return box
+end
+
+local function Dropdown(parent, text, options, key, order)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, 0, 0, 32); row.BackgroundColor3 = Color.Card; row.BorderSizePixel = 0; row.LayoutOrder = order
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(0.5, 0, 1, 0); lbl.Position = UDim2.new(0, 12, 0, 0)
+    lbl.BackgroundTransparency = 1; lbl.Text = text
+    lbl.TextColor3 = Color.Text; lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 11
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local idx = 1
+    for i, o in ipairs(options) do if o == S[key] then idx = i; break end end
+    
+    local btn = Instance.new("TextButton", row)
+    btn.Size = UDim2.new(0.42, 0, 0, 22); btn.Position = UDim2.new(0.54, 0, 0.5, -11)
+    btn.BackgroundColor3 = Color.Input; btn.BorderSizePixel = 0
+    btn.Text = "  " .. options[idx] .. "  >"; btn.TextColor3 = Color.Primary
+    btn.Font = Enum.Font.GothamMedium; btn.TextSize = 10
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    Instance.new("UIStroke", btn).Color = Color.Border
+    
+    btn.MouseButton1Click:Connect(function()
+        idx = idx + 1; if idx > #options then idx = 1 end
+        S[key] = options[idx]
+        btn.Text = "  " .. options[idx] .. "  >"
+    end)
+end
+
+local function Slider(parent, text, min, max, key, order)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, 0, 0, 38); row.BackgroundColor3 = Color.Card; row.BorderSizePixel = 0; row.LayoutOrder = order
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(0.6, 0, 0, 16); lbl.Position = UDim2.new(0, 12, 0, 2)
+    lbl.BackgroundTransparency = 1; lbl.Text = text
+    lbl.TextColor3 = Color.Text; lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 10
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local val = S[key] or min
+    local vLbl = Instance.new("TextLabel", row)
+    vLbl.Size = UDim2.new(0.35, 0, 0, 16); vLbl.Position = UDim2.new(0.6, 0, 0, 2)
+    vLbl.BackgroundTransparency = 1; vLbl.Text = tostring(val)
+    vLbl.TextColor3 = Color.Primary; vLbl.Font = Enum.Font.GothamBold; vLbl.TextSize = 10
+    vLbl.TextXAlignment = Enum.TextXAlignment.Right
+    
+    local track = Instance.new("Frame", row)
+    track.Size = UDim2.new(1, -24, 0, 4); track.Position = UDim2.new(0, 12, 0, 26)
+    track.BackgroundColor3 = Color.ToggleOff; track.BorderSizePixel = 0
+    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+    
+    local pct = math.clamp((val - min) / math.max(max - min, 1), 0, 1)
+    local fill = Instance.new("Frame", track)
+    fill.Size = UDim2.new(pct, 0, 1, 0); fill.BackgroundColor3 = Color.Primary; fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+    
+    local knob = Instance.new("Frame", track)
+    knob.Size = UDim2.new(0, 12, 0, 12); knob.Position = UDim2.new(pct, -6, 0.5, -6)
+    knob.BackgroundColor3 = Color.Text; knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+    
+    local dragging = false
+    local hitbox = Instance.new("TextButton", row)
+    hitbox.Size = UDim2.new(1, 0, 0, 18); hitbox.Position = UDim2.new(0, 0, 0, 18)
+    hitbox.BackgroundTransparency = 1; hitbox.Text = ""
+    
+    local function Update(input)
+        local tX = track.AbsolutePosition.X; local tW = track.AbsoluteSize.X
+        if tW == 0 then return end
+        local p = math.clamp((input.Position.X - tX) / tW, 0, 1)
+        local v = math.floor(min + (max - min) * p)
+        fill.Size = UDim2.new(p, 0, 1, 0); knob.Position = UDim2.new(p, -6, 0.5, -6)
+        vLbl.Text = tostring(v); S[key] = v
+    end
+    hitbox.MouseButton1Down:Connect(function() dragging = true end)
+    AddC(UIS.InputChanged:Connect(function(i) if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then Update(i) end end))
+    AddC(UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end))
+end
+
+local function Button(parent, text, cb, order)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(1, 0, 0, 28); btn.BackgroundColor3 = Color.Card; btn.BorderSizePixel = 0
+    btn.Text = "  " .. text; btn.TextColor3 = Color.Primary
+    btn.Font = Enum.Font.GothamMedium; btn.TextSize = 11
+    btn.TextXAlignment = Enum.TextXAlignment.Left; btn.LayoutOrder = order
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    btn.MouseButton1Click:Connect(function()
+        if cb then pcall(cb) end
+        local orig = btn.Text; btn.Text = "  Done!"; btn.TextColor3 = Color.Success
+        task.delay(1, function() btn.Text = orig; btn.TextColor3 = Color.Primary end)
+    end)
+end
+
+local function InfoLabel(parent, text, order)
+    local lbl = Instance.new("TextLabel", parent)
+    lbl.Size = UDim2.new(1, 0, 0, 14); lbl.BackgroundTransparency = 1
+    lbl.Text = text; lbl.TextColor3 = Color.TextDim
+    lbl.Font = Enum.Font.Gotham; lbl.TextSize = 9
+    lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.LayoutOrder = order
+    return lbl
+end
+
+-- ══════════════════════════════════════════════════════════════
+-- BUILD TABS
+-- ══════════════════════════════════════════════════════════════
+local P_Smart = CreateTab("Smart", 1)
+local P_Farm = CreateTab("Farm", 2)
+local P_Train = CreateTab("Train", 3)
+local P_Webhook = CreateTab("Webhook", 4)
+local P_Settings = CreateTab("Settings", 5)
+
+-- ═══════════════ SMART TAB ═══════════════
+Section(P_Smart, "SMART FARM", 1)
+InfoLabel(P_Smart, "Auto Kick > Analyze CPS > Filter & Collect Best Rolls", 2)
+
+Toggle(P_Smart, "Smart Farm", "SmartFarm", function(v) if v then task.spawn(SmartFarmLoop) end end, 3)
+
+Section(P_Smart, "SETTINGS", 4)
+NumInput(P_Smart, "Min CPS Target", "TargetCPS", "e.g. 5000", 5)
+Slider(P_Smart, "Kick Power %", 1, 100, "KickPower", 6)
+
+Section(P_Smart, "RARITY PRIORITY", 7)
+InfoLabel(P_Smart, "Select rarity to auto-collect regardless of CPS:", 8)
+InfoLabel(P_Smart, "(If matched, brainrot is collected instantly without CPS check)", 9)
+
+-- Rarity multi-select using checkboxes
+local RarityOptions = {"Off", "Common", "Rare", "Epic", "Legendary", "Mythic", "Godly", "Secret", "Divine", "Hacked", "OG", "Celestial", "Exclusive", "Eternal"}
+local SelectedRarities = {} -- table of selected rarities
+
+-- Create a scrollable rarity selector
+local rarFrame = Instance.new("Frame", P_Smart)
+rarFrame.Name = "RaritySelector"
+rarFrame.Size = UDim2.new(1, 0, 0, 120)
+rarFrame.BackgroundColor3 = Color.Card
+rarFrame.BorderSizePixel = 0
+rarFrame.LayoutOrder = 10
+Instance.new("UICorner", rarFrame).CornerRadius = UDim.new(0, 8)
+
+local rarScroll = Instance.new("ScrollingFrame", rarFrame)
+rarScroll.Size = UDim2.new(1, -8, 1, -8)
+rarScroll.Position = UDim2.new(0, 4, 0, 4)
+rarScroll.BackgroundTransparency = 1
+rarScroll.ScrollBarThickness = 2
+rarScroll.ScrollBarImageColor3 = Color.Primary
+rarScroll.BorderSizePixel = 0
+rarScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+rarScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local rarLayout = Instance.new("UIListLayout", rarScroll)
+rarLayout.Padding = UDim.new(0, 3)
+rarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local rarCheckboxes = {}
+
+local function UpdateRarityState()
+    -- Build the selected rarities string for display
+    local selected = {}
+    for _, name in ipairs(RarityOptions) do
+        if name ~= "Off" and SelectedRarities[name] then
+            table.insert(selected, name)
+        end
+    end
+    if #selected == 0 then
+        S.RarityFilter = "Off"
+    else
+        S.RarityFilter = table.concat(selected, ",")
+    end
+end
+
+for i, rarName in ipairs(RarityOptions) do
+    local row = Instance.new("Frame", rarScroll)
+    row.Size = UDim2.new(1, 0, 0, 22)
+    row.BackgroundTransparency = 1
+    row.LayoutOrder = i
+    
+    -- Checkbox
+    local check = Instance.new("Frame", row)
+    check.Size = UDim2.new(0, 16, 0, 16)
+    check.Position = UDim2.new(0, 4, 0.5, -8)
+    check.BackgroundColor3 = Color.Input
+    check.BorderSizePixel = 0
+    Instance.new("UICorner", check).CornerRadius = UDim.new(0, 4)
+    Instance.new("UIStroke", check).Color = Color.Border
+    
+    local checkMark = Instance.new("TextLabel", check)
+    checkMark.Size = UDim2.new(1, 0, 1, 0)
+    checkMark.BackgroundTransparency = 1
+    checkMark.Text = ""
+    checkMark.TextColor3 = Color.Success
+    checkMark.Font = Enum.Font.GothamBold
+    checkMark.TextSize = 12
+    
+    -- Label
+    local rarLbl = Instance.new("TextLabel", row)
+    rarLbl.Size = UDim2.new(1, -30, 1, 0)
+    rarLbl.Position = UDim2.new(0, 26, 0, 0)
+    rarLbl.BackgroundTransparency = 1
+    rarLbl.Font = Enum.Font.GothamMedium
+    rarLbl.TextSize = 10
+    rarLbl.TextXAlignment = Enum.TextXAlignment.Left
+    
+    if rarName == "Off" then
+        rarLbl.Text = "Off (CPS check only)"
+        rarLbl.TextColor3 = Color.TextDim
+    else
+        local rarCol = RarityColors and RarityColors[rarName] or Color.Text
+        rarLbl.Text = rarName
+        rarLbl.TextColor3 = rarCol
+    end
+    
+    -- Default: Off is selected
+    local isOn = (rarName == "Off")
+    if isOn then
+        checkMark.Text = "\226\156\147"
+        check.BackgroundColor3 = Color.Success
+    end
+    
+    rarCheckboxes[rarName] = {check = check, mark = checkMark, on = isOn}
+    
+    -- Click handler
+    local hitbox = Instance.new("TextButton", row)
+    hitbox.Size = UDim2.new(1, 0, 1, 0)
+    hitbox.BackgroundTransparency = 1
+    hitbox.Text = ""
+    
+    hitbox.MouseButton1Click:Connect(function()
+        if rarName == "Off" then
+            -- Turn off all others, turn on Off
+            for name, data in pairs(rarCheckboxes) do
+                if name == "Off" then
+                    data.on = true
+                    data.mark.Text = "\226\156\147"
+                    data.check.BackgroundColor3 = Color.Success
+                else
+                    data.on = false
+                    data.mark.Text = ""
+                    data.check.BackgroundColor3 = Color.Input
+                end
+            end
+            SelectedRarities = {}
+        else
+            -- Toggle this rarity
+            local data = rarCheckboxes[rarName]
+            data.on = not data.on
+            if data.on then
+                data.mark.Text = "\226\156\147"
+                data.check.BackgroundColor3 = Color.Success
+                SelectedRarities[rarName] = true
+                -- Uncheck "Off"
+                rarCheckboxes["Off"].on = false
+                rarCheckboxes["Off"].mark.Text = ""
+                rarCheckboxes["Off"].check.BackgroundColor3 = Color.Input
+            else
+                data.mark.Text = ""
+                data.check.BackgroundColor3 = Color.Input
+                SelectedRarities[rarName] = nil
+                -- If nothing selected, re-enable Off
+                local anyOn = false
+                for name, d in pairs(rarCheckboxes) do
+                    if name ~= "Off" and d.on then anyOn = true; break end
+                end
+                if not anyOn then
+                    rarCheckboxes["Off"].on = true
+                    rarCheckboxes["Off"].mark.Text = "\226\156\147"
+                    rarCheckboxes["Off"].check.BackgroundColor3 = Color.Success
+                end
+            end
+        end
+        UpdateRarityState()
+    end)
+end
+
+-- Initialize rarity checkboxes from loaded config
+if S.RarityFilter and S.RarityFilter ~= "Off" then
+    -- Parse saved rarity filter and check the boxes
+    for rarName in string.gmatch(S.RarityFilter, "[^,]+") do
+        rarName = rarName:match("^%s*(.-)%s*$") -- trim
+        if rarCheckboxes[rarName] then
+            rarCheckboxes[rarName].on = true
+            rarCheckboxes[rarName].mark.Text = "\226\156\147"
+            rarCheckboxes[rarName].check.BackgroundColor3 = Color.Success
+            SelectedRarities[rarName] = true
+        end
+    end
+    -- Uncheck "Off"
+    if next(SelectedRarities) then
+        rarCheckboxes["Off"].on = false
+        rarCheckboxes["Off"].mark.Text = ""
+        rarCheckboxes["Off"].check.BackgroundColor3 = Color.Input
+    end
+end
+
+Section(P_Smart, "LIVE STATUS", 11)
+local stLbl = InfoLabel(P_Smart, "Status: Idle", 12)
+local rollLbl = InfoLabel(P_Smart, "Last: ---", 13)
+local cpsLbl = InfoLabel(P_Smart, "CPS: ---", 14)
+local countLbl = InfoLabel(P_Smart, "Good: 0 | Bad: 0", 15)
+
+-- Status updater
+task.spawn(function()
+    while S.Running do
+        pcall(function()
+            stLbl.Text = "Status: " .. S.Status
+            stLbl.TextColor3 = S.Status:find("GOOD") and Color.Success or (S.Status:find("BAD") and Color.Danger or Color.TextDim)
+            rollLbl.Text = "Last: " .. S.LastRoll
+            cpsLbl.Text = "CPS: " .. S.LastCPS
+            countLbl.Text = "Good: " .. S.GoodCount .. " | Bad: " .. S.BadCount
+        end)
+        task.wait(0.3)
+    end
+end)
+
+-- ═══════════════ FARM TAB ═══════════════
+Section(P_Farm, "COLLECT & REBIRTH", 1)
+Toggle(P_Farm, "Auto Collect", "AutoCollect", function(v) if v then task.spawn(LoopCollect) end end, 2)
+Toggle(P_Farm, "Auto Rebirth", "AutoRebirth", function(v) if v then task.spawn(LoopRebirth) end end, 3)
+
+Section(P_Farm, "UPGRADES", 4)
+Toggle(P_Farm, "Auto Upgrade Brainrot", "AutoUpgrade", function(v) if v then task.spawn(LoopUpgrade) end end, 5)
+Toggle(P_Farm, "Auto Buy Speed", "AutoBuySpeed", function(v) if v then task.spawn(LoopBuySpeed) end end, 6)
+Toggle(P_Farm, "Auto Base Upgrade", "AutoBaseUpgrade", function(v) if v then task.spawn(LoopBaseUpgrade) end end, 7)
+
+Section(P_Farm, "BRAINROT MANAGEMENT", 8)
+Toggle(P_Farm, "Auto Favorite (Advanced)", "AutoFavorite", function(v) if v then task.spawn(LoopFav) end end, 9)
+NumInput(P_Farm, "Min Favorite CPS", "MinFavCPS", "Enter min CPS to fav", 10)
+NumInput(P_Farm, "Min Unfavorite CPS", "MinUnfavCPS", "Enter min CPS to unfav", 11)
+Toggle(P_Farm, "Auto Sell (Non-Fav)", "AutoSell", function(v) if v then task.spawn(LoopSell) end end, 12)
+Toggle(P_Farm, "Auto Place Best (Local)", "AutoPlaceBest", function(v) if v then task.spawn(LoopPlaceBest) end end, 13)
+Toggle(P_Farm, "Auto Place Best (Global)", "AutoPlaceBestGlobal", function(v) if v then task.spawn(LoopPlaceBestGlobal) end end, 14)
+Button(P_Farm, "Remove All From Base", function() DoRemoveAll() end, 15)
+Toggle(P_Farm, "Auto Plot Upgrade", "AutoPlotUpgrade", function(v) if v then task.spawn(LoopPlotUpgrade) end end, 16)
+
+-- ═══════════════ TRAIN TAB (WEIGHT LIFTING) ═══════════════
+Section(P_Train, "WEIGHT TRAINING", 1)
+Toggle(P_Train, "Auto Train (Equip Weight)", "AutoTrain", function(v) if v then task.spawn(LoopTrain) end end, 2)
+Toggle(P_Train, "Auto Collect Train Cash", "AutoTrainCollect", function(v) if v then task.spawn(LoopTrainCollect) end end, 3)
+Toggle(P_Train, "Auto Claim 2x Bonus", "Auto2xBonus", function(v)
+    if v then
+        task.spawn(Loop2xBonus)
+    else
+        StopBonus2xListener()
+    end
+end, 4)
+
+Section(P_Train, "WEIGHT SHOP", 5)
+
+-- Build weight list dynamically from game
+local WeightList = {"None"}
+pcall(function()
+    local wm = RS:FindFirstChild("Objects") and RS.Objects:FindFirstChild("WeightModels")
+    if wm then
+        for _, w in ipairs(wm:GetChildren()) do
+            table.insert(WeightList, w.Name)
+        end
+    end
+    -- Fallback: try WeightsData module
+    if #WeightList <= 1 then
+        local wd = RS:FindFirstChild("WeightsData", true)
+        if wd then
+            local data = require(wd)
+            if data and data.Weights then
+                for name, _ in pairs(data.Weights) do
+                    table.insert(WeightList, name)
+                end
+            end
+        end
+    end
+end)
+
+Dropdown(P_Train, "Select Weight", WeightList, "TargetWeight", 6)
+Toggle(P_Train, "Auto Buy Weight", "AutoBuyWeight", function(v) if v then task.spawn(LoopBuyWeight) end end, 7)
+
+-- ═══════════════ WEBHOOK TAB ═══════════════
+Section(P_Webhook, "DISCORD INTEGRATION", 1)
+InfoLabel(P_Webhook, "Send GOOD ROLL notifications to your Discord channel via webhook.", 2)
+InfoLabel(P_Webhook, "Only good rolls are sent. Bad rolls are not notified.", 3)
+
+Section(P_Webhook, "WEBHOOK SETTINGS", 4)
+Toggle(P_Webhook, "Enable Webhook", "WebhookEnabled", nil, 5)
+
+-- Webhook URL input
+local webhookRow = Instance.new("Frame", P_Webhook)
+webhookRow.Size = UDim2.new(1, 0, 0, 32); webhookRow.BackgroundColor3 = Color.Card; webhookRow.BorderSizePixel = 0; webhookRow.LayoutOrder = 6
+Instance.new("UICorner", webhookRow).CornerRadius = UDim.new(0, 8)
+
+local webhookLbl = Instance.new("TextLabel", webhookRow)
+webhookLbl.Size = UDim2.new(0, 70, 1, 0); webhookLbl.Position = UDim2.new(0, 12, 0, 0)
+webhookLbl.BackgroundTransparency = 1; webhookLbl.Text = "URL:"
+webhookLbl.TextColor3 = Color.Text; webhookLbl.Font = Enum.Font.GothamMedium; webhookLbl.TextSize = 10
+webhookLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+local webhookBox = Instance.new("TextBox", webhookRow)
+webhookBox.Size = UDim2.new(1, -90, 0, 22); webhookBox.Position = UDim2.new(0, 78, 0.5, -11)
+webhookBox.BackgroundColor3 = Color.Input; webhookBox.BorderSizePixel = 0
+webhookBox.Text = S.WebhookURL; webhookBox.PlaceholderText = "Paste Discord webhook URL here"
+webhookBox.TextColor3 = Color.Primary; webhookBox.PlaceholderColor3 = Color.TextDim
+webhookBox.Font = Enum.Font.Gotham; webhookBox.TextSize = 9; webhookBox.ClearTextOnFocus = false
+webhookBox.TextTruncate = Enum.TextTruncate.AtEnd
+Instance.new("UICorner", webhookBox).CornerRadius = UDim.new(0, 4)
+Instance.new("UIStroke", webhookBox).Color = Color.Border
+
+webhookBox.FocusLost:Connect(function()
+    S.WebhookURL = webhookBox.Text
+    if S.WebhookURL ~= "" and S.WebhookEnabled then
+        Notify("Moron HUB", "Webhook configured! Good rolls will be sent to Discord.", 3)
+    end
+end)
+
+Section(P_Webhook, "TEST & VERIFY", 7)
+InfoLabel(P_Webhook, "Press the button below to send a test notification to your Discord.", 8)
+Button(P_Webhook, "Send Test Notification", function()
+    if S.WebhookURL == "" then
+        Notify("Moron HUB", "Please enter a webhook URL first!", 3)
+        return
+    end
+    local origEnabled = S.WebhookEnabled
+    S.WebhookEnabled = true
+    SendWebhook("Test Brainrot", "Golden", 999999, "Legendary", "Webhook Test - Connection OK!")
+    S.WebhookEnabled = origEnabled
+    Notify("Moron HUB", "Test message sent! Check your Discord.", 3)
+end, 9)
+
+Section(P_Webhook, "LAST 3 GOOD ROLLS", 10)
+InfoLabel(P_Webhook, "Recent valuable rolls collected this session:", 11)
+
+local historyLabels = {}
+for i = 1, 3 do
+    local histRow = Instance.new("Frame", P_Webhook)
+    histRow.Size = UDim2.new(1, 0, 0, 36); histRow.BackgroundColor3 = Color.Card; histRow.BorderSizePixel = 0; histRow.LayoutOrder = 11 + i
+    Instance.new("UICorner", histRow).CornerRadius = UDim.new(0, 8)
+    
+    local numLbl = Instance.new("TextLabel", histRow)
+    numLbl.Size = UDim2.new(0, 20, 1, 0); numLbl.Position = UDim2.new(0, 8, 0, 0)
+    numLbl.BackgroundTransparency = 1; numLbl.Text = "#" .. i
+    numLbl.TextColor3 = Color.Primary; numLbl.Font = Enum.Font.GothamBold; numLbl.TextSize = 10
+    numLbl.TextXAlignment = Enum.TextXAlignment.Left
+    
+    local nameLbl = Instance.new("TextLabel", histRow)
+    nameLbl.Name = "NameLbl"
+    nameLbl.Size = UDim2.new(0.55, 0, 0, 14); nameLbl.Position = UDim2.new(0, 30, 0, 3)
+    nameLbl.BackgroundTransparency = 1; nameLbl.Text = "---"
+    nameLbl.TextColor3 = Color.Text; nameLbl.Font = Enum.Font.GothamMedium; nameLbl.TextSize = 9
+    nameLbl.TextXAlignment = Enum.TextXAlignment.Left; nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    local detailLbl = Instance.new("TextLabel", histRow)
+    detailLbl.Name = "DetailLbl"
+    detailLbl.Size = UDim2.new(0.85, 0, 0, 12); detailLbl.Position = UDim2.new(0, 30, 0, 18)
+    detailLbl.BackgroundTransparency = 1; detailLbl.Text = ""
+    detailLbl.TextColor3 = Color.TextDim; detailLbl.Font = Enum.Font.Gotham; detailLbl.TextSize = 8
+    detailLbl.TextXAlignment = Enum.TextXAlignment.Left; detailLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    
+    local cpsHistLbl = Instance.new("TextLabel", histRow)
+    cpsHistLbl.Name = "CPSLbl"
+    cpsHistLbl.Size = UDim2.new(0.3, 0, 1, 0); cpsHistLbl.Position = UDim2.new(0.68, 0, 0, 0)
+    cpsHistLbl.BackgroundTransparency = 1; cpsHistLbl.Text = ""
+    cpsHistLbl.TextColor3 = Color.Success; cpsHistLbl.Font = Enum.Font.GothamBold; cpsHistLbl.TextSize = 9
+    cpsHistLbl.TextXAlignment = Enum.TextXAlignment.Right
+    
+    historyLabels[i] = {name = nameLbl, detail = detailLbl, cps = cpsHistLbl}
+end
+
+-- History updater
+task.spawn(function()
+    while S.Running do
+        pcall(function()
+            for i = 1, 3 do
+                local entry = S.GoodRollHistory[i]
+                if entry then
+                    historyLabels[i].name.Text = entry.name
+                    local mutStr = (entry.mutation ~= "None" and entry.mutation ~= "") and (" [" .. entry.mutation .. "]") or ""
+                    historyLabels[i].detail.Text = entry.rarity .. mutStr .. " | " .. entry.time
+                    historyLabels[i].cps.Text = FmtNum(entry.cps) .. "/s"
+                else
+                    historyLabels[i].name.Text = "---"
+                    historyLabels[i].detail.Text = ""
+                    historyLabels[i].cps.Text = ""
+                end
+            end
+        end)
+        task.wait(1)
+    end
+end)
+
+-- ═══════════════ SETTINGS TAB ═══════════════
+Section(P_Settings, "PLAYER PROTECTION", 1)
+InfoLabel(P_Settings, "Protect your character from damage and AFK kicks.", 2)
+Toggle(P_Settings, "God Mode", "GodMode", function(v) if v then task.spawn(LoopGod) end end, 3)
+Toggle(P_Settings, "Anti-AFK", "AntiAFK", function(v)
+    if v then task.spawn(function()
+        while S.AntiAFK and S.Running do
+            pcall(function() game:GetService("VirtualUser"):CaptureController(); game:GetService("VirtualUser"):ClickButton2(Vector2.new()) end)
+            task.wait(60)
+        end
+    end) end
+end, 4)
+
+Section(P_Settings, "PERFORMANCE", 5)
+InfoLabel(P_Settings, "Optimize game performance for smoother farming.", 6)
+Toggle(P_Settings, "FPS Boost", "FPSBoost", function(v)
+    pcall(function()
+        if v then
+            settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+            for _, x in ipairs(WS:GetDescendants()) do
+                if x:IsA("ParticleEmitter") or x:IsA("Trail") then x.Enabled = false end
+            end
+        else settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic end
+    end)
+end, 7)
+
+Section(P_Settings, "QUICK ACTIONS", 8)
+InfoLabel(P_Settings, "Manual one-click actions for quick use.", 9)
+Button(P_Settings, "Teleport to Kick Zone", function() TeleportToKickZone(); Notify("Moron HUB", "Teleported!", 2) end, 10)
+Button(P_Settings, "Kick Now", function() DoKick(); Notify("Moron HUB", "Kicked!", 2) end, 11)
+Button(P_Settings, "Collect All", function() DoCollect(); Notify("Moron HUB", "Collected!", 2) end, 12)
+Button(P_Settings, "Sell All", function() DoSellAll(); Notify("Moron HUB", "Sold!", 2) end, 13)
+Button(P_Settings, "Rebirth", function() DoRebirth(); Notify("Moron HUB", "Rebirthed!", 2) end, 14)
+Button(P_Settings, "Upgrade All", function() DoUpgrade(); Notify("Moron HUB", "Upgraded!", 2) end, 15)
+Button(P_Settings, "Favorite Rare+", function() DoAutoFav(); Notify("Moron HUB", "Favorited!", 2) end, 16)
+Button(P_Settings, "Place Best", function() DoPlaceBest(); Notify("Moron HUB", "Placed!", 2) end, 17)
+
+Section(P_Settings, "DEBUG (F9 Console)", 18)
+InfoLabel(P_Settings, "Advanced debug tools. Output shown in F9 console.", 19)
+Button(P_Settings, "Print Remotes", function()
+    local c = 0
+    for k, v in pairs(R) do if v then c = c + 1; print("[MoronHUB] " .. k .. " = " .. v.Name) end end
+    Notify("Moron HUB", c .. " remotes found", 3)
+end, 20)
+Button(P_Settings, "Print KickReady Info", function()
+    local kr = GetKickReady()
+    if kr then Notify("Moron HUB", "KickReady: " .. kr:GetFullName(), 3); print("[MoronHUB] KickReady:", kr:GetFullName(), kr.Position)
+    else Notify("Moron HUB", "KickReady NOT FOUND!", 3) end
+end, 21)
+Button(P_Settings, "Print InGame Attr", function()
+    local raw = LP:GetAttribute("InGame") or ""
+    Notify("Moron HUB", "InGame: " .. (raw ~= "" and raw or "(empty)"), 4)
+    print("[MoronHUB] InGame:", raw)
+end, 22)
+Button(P_Settings, "Print CPS Database", function()
+    local c = 0; for _ in pairs(CPSLookup) do c = c + 1 end
+    Notify("Moron HUB", c .. " brainrots loaded", 3)
+end, 23)
+Button(P_Settings, "Test Can Kick", function()
+    Notify("Moron HUB", "CanKick: " .. tostring(CanKick()), 3)
+end, 24)
+Button(P_Settings, "Debug 2x Bonus", function()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then print("[MoronHUB] PlayerGui not found") return end
+    local ku = pg:FindFirstChild("KickUpgrades")
+    print("[MoronHUB] KickUpgrades ScreenGui: " .. tostring(ku ~= nil))
+    if ku then
+        print("[MoronHUB] KickUpgrades children:")
+        for _, c in ipairs(ku:GetChildren()) do
+            print("  -> " .. c.Name .. " [" .. c.ClassName .. "] Visible:" .. tostring(pcall(function() return c.Visible end) and c.Visible or "?"))
+        end
+        local bonus = ku:FindFirstChild("Bonus", true)
+        print("[MoronHUB] Bonus found in KickUpgrades: " .. tostring(bonus ~= nil))
+        if bonus then
+            print("[MoronHUB] Bonus class: " .. bonus.ClassName .. " Visible: " .. tostring(bonus.Visible))
+            print("[MoronHUB] Bonus AbsPos: " .. tostring(bonus.AbsolutePosition) .. " AbsSize: " .. tostring(bonus.AbsoluteSize))
+        end
+    end
+    local found = pg:FindFirstChild("Bonus", true)
+    print("[MoronHUB] Bonus anywhere in PlayerGui: " .. tostring(found ~= nil))
+    if found then
+        print("[MoronHUB] Found at: " .. found:GetFullName() .. " Class: " .. found.ClassName)
+    end
+    local x2found = false
+    for _, desc in ipairs(pg:GetDescendants()) do
+        if (desc:IsA("TextButton") or desc:IsA("ImageButton")) then
+            local txt = ""
+            pcall(function() txt = desc.Text or "" end)
+            local nm = desc.Name:lower()
+            if txt:find("2x") or txt:find("x2") or nm:find("bonus") or nm:find("2x") then
+                print("[MoronHUB] x2 Button: " .. desc:GetFullName() .. " Class:" .. desc.ClassName .. " Vis:" .. tostring(desc.Visible) .. " Text:" .. txt)
+                x2found = true
+            end
+        end
+    end
+    if not x2found then print("[MoronHUB] No x2/bonus buttons found in PlayerGui") end
+    Notify("Moron HUB", "Check F9 console for bonus debug info", 3)
+end, 25)
+
+-- ══════════════════════════════════════════════════════════════
+-- DRAGGING
+-- ══════════════════════════════════════════════════════════════
+local dragging, dragInput, dragStart, startPos = false, nil, nil, nil
+Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true; dragStart = input.Position; startPos = Win.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+    end
+end)
+Header.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+end)
+AddC(UIS.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local d = input.Position - dragStart
+        Win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+    end
+end))
+
+-- ══════════════════════════════════════════════════════════════
+-- CONTROLS
+-- ══════════════════════════════════════════════════════════════
+-- Mini Avatar Button (shown when minimized)
+local MiniAvatar = Instance.new("ImageButton", SG)
+MiniAvatar.Name = "MiniAvatar"
+MiniAvatar.Size = UDim2.new(0, 50, 0, 50)
+MiniAvatar.Position = UDim2.new(0, 16, 0.5, -25)
+MiniAvatar.BackgroundColor3 = Color.Surface
+MiniAvatar.BorderSizePixel = 0
+MiniAvatar.Visible = false
+MiniAvatar.ScaleType = Enum.ScaleType.Fit
+MiniAvatar.ImageTransparency = 0
+Instance.new("UICorner", MiniAvatar).CornerRadius = UDim.new(1, 0)
+local miniStroke = Instance.new("UIStroke", MiniAvatar)
+miniStroke.Color = Color.Primary; miniStroke.Thickness = 2.5
+
+-- Set avatar image on mini button
+pcall(function()
+    local thumbType = Enum.ThumbnailType.HeadShot
+    local thumbSize = Enum.ThumbnailSize.Size150x150
+    local content, isReady = Players:GetUserThumbnailAsync(LP.UserId, thumbType, thumbSize)
+    MiniAvatar.Image = content
+end)
+
+-- Online pulse ring effect
+local PulseRing = Instance.new("Frame", MiniAvatar)
+PulseRing.Name = "PulseRing"
+PulseRing.Size = UDim2.new(1, 6, 1, 6)
+PulseRing.Position = UDim2.new(0, -3, 0, -3)
+PulseRing.BackgroundTransparency = 1
+PulseRing.BorderSizePixel = 0
+Instance.new("UICorner", PulseRing).CornerRadius = UDim.new(1, 0)
+local pulseStroke = Instance.new("UIStroke", PulseRing)
+pulseStroke.Color = Color.Success; pulseStroke.Thickness = 1.5; pulseStroke.Transparency = 0.5
+
+-- Make mini avatar draggable
+local miniDragging = false
+local miniDragStart, miniStartPos
+MiniAvatar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        miniDragging = true
+        miniDragStart = input.Position
+        miniStartPos = MiniAvatar.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then miniDragging = false end
+        end)
+    end
+end)
+MiniAvatar.InputChanged:Connect(function(input)
+    if miniDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - miniDragStart
+        MiniAvatar.Position = UDim2.new(miniStartPos.X.Scale, miniStartPos.X.Offset + delta.X, miniStartPos.Y.Scale, miniStartPos.Y.Offset + delta.Y)
+    end
+end)
+
+local minimized = false
+
+-- Minimize: hide window, show avatar circle
+MinBtn.MouseButton1Click:Connect(function()
+    minimized = true
+    Win.Visible = false
+    MiniAvatar.Visible = true
+end)
+
+-- Restore: click avatar to reopen window
+MiniAvatar.MouseButton1Click:Connect(function()
+    if not miniDragging then
+        minimized = false
+        Win.Visible = true
+        MiniAvatar.Visible = false
+    end
+end)
+
+CloseBtn.MouseButton1Click:Connect(function()
+    SaveConfig() -- Save settings before unload
+    S.Running = false; genv.MoronHUB_Active = false
+    for _, c in ipairs(S.Conns) do pcall(function() c:Disconnect() end) end
+    pcall(function() local h = GetHum(); if h then h.WalkSpeed = 16; h.MaxHealth = 100; h.Health = 100 end end)
+    SG:Destroy(); Notify("Moron HUB", "Settings saved! Unloaded.", 2)
+end)
+
+AddC(UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then Win.Visible = not Win.Visible end
+end))
+
+-- ══════════════════════════════════════════════════════════════
+-- STARTUP
+-- ══════════════════════════════════════════════════════════════
+SwitchTab("Smart")
+
+pcall(function() AddC(LP.Idled:Connect(function() game:GetService("VirtualUser"):CaptureController(); game:GetService("VirtualUser"):ClickButton2(Vector2.new()) end)) end)
+
+task.defer(function()
+    local rc = 0; for _, v in pairs(R) do if v then rc = rc + 1 end end
+    local cc = 0; for _ in pairs(CPSLookup) do cc = cc + 1 end
+    local kr = GetKickReady()
+    Notify("Moron HUB v1.0", rc .. " remotes | " .. cc .. " CPS data | KickReady: " .. (kr and "OK" or "NOT FOUND"), 5)
+    print("═══════════════════════════════════════")
+    print("  Moron HUB v1.0 - Premium Edition")
+    print("  Remotes: " .. rc)
+    print("  CPS Database: " .. cc .. " brainrots")
+    print("  KickReady: " .. (kr and kr:GetFullName() or "NOT FOUND"))
+    print("  Press RightShift to toggle UI")
+    print("═══════════════════════════════════════")
+end)
