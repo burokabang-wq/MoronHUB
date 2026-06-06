@@ -1855,102 +1855,32 @@ end
 -- ══════════════════════════════════════════════════════════════
 -- SPEED BOOST BYPASS (x2 Run Speed - No Potion Needed)
 -- ══════════════════════════════════════════════════════════════
-local _speedBoostActive = false
-local _speedConnections = {}
-local _targetSpeed = 200 -- Target speed (will be adjusted based on game speed)
-
-local function ActivateSpeedBoost()
-    if _speedBoostActive then return end
-    _speedBoostActive = true
-    
-    local function getHumanoid()
-        local char = LP.Character
-        return char and char:FindFirstChildOfClass("Humanoid")
-    end
-    
-    -- TECHNIQUE 1: GetPropertyChangedSignal - instantly re-apply speed when game resets it
-    pcall(function()
-        local hum = getHumanoid()
-        if hum then
-            local conn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-                if _speedBoostActive then
-                    task.defer(function()
-                        if hum and _speedBoostActive then
-                            hum.WalkSpeed = _targetSpeed
-                        end
-                    end)
-                end
-            end)
-            table.insert(_speedConnections, conn)
-            hum.WalkSpeed = _targetSpeed
-            print("[MoronHUB] Speed Boost: PropertyChanged listener active")
-        end
-    end)
-    
-    -- TECHNIQUE 2: Lightweight loop (every 0.2s, not every frame)
-    task.spawn(function()
-        while _speedBoostActive do
-            pcall(function()
-                local hum = getHumanoid()
-                if hum then
-                    hum.WalkSpeed = _targetSpeed
-                end
-            end)
-            task.wait(0.2)
-        end
-    end)
-    
-    -- TECHNIQUE 3: Re-apply on respawn
-    local conn3 = LP.CharacterAdded:Connect(function(char)
-        if not _speedBoostActive then return end
-        task.wait(1)
-        pcall(function()
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.WalkSpeed = _targetSpeed
-                local conn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-                    if _speedBoostActive then
-                        task.defer(function()
-                            if hum and _speedBoostActive then
-                                hum.WalkSpeed = _targetSpeed
-                            end
-                        end)
-                    end
-                end)
-                table.insert(_speedConnections, conn)
-            end
-        end)
-    end)
-    table.insert(_speedConnections, conn3)
-    
-    print("[MoronHUB] Speed Boost ACTIVATED! Target speed: " .. _targetSpeed)
-end
-
-local function DeactivateSpeedBoost()
-    _speedBoostActive = false
-    
-    -- Disconnect all connections
-    for _, conn in ipairs(_speedConnections) do
-        pcall(function() conn:Disconnect() end)
-    end
-    _speedConnections = {}
-    
-    -- Reset WalkSpeed to let game control it again
-    pcall(function()
-        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
-        if hum then hum.WalkSpeed = 22 end
-    end)
-    
-    print("[MoronHUB] Speed Boost DEACTIVATED")
-end
 
 local function LoopPotion()
-    ActivateSpeedBoost()
-    -- Keep alive while toggle is on
+    -- Simple approach: just set WalkSpeed every 0.5s in a loop
+    -- No event listeners, no hooks, no physics - just a plain loop
+    print("[MoronHUB] Speed Boost ACTIVATED! Setting WalkSpeed to 200 every 0.5s")
     while S.AutoPotion and S.Running do
-        task.wait(1)
+        pcall(function()
+            local char = LP.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.WalkSpeed = 200
+                end
+            end
+        end)
+        task.wait(0.5)
     end
-    DeactivateSpeedBoost()
+    -- Reset when turned off
+    pcall(function()
+        local char = LP.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = 22 end
+        end
+    end)
+    print("[MoronHUB] Speed Boost DEACTIVATED")
 end
 
 -- ══════════════════════════════════════════════════════════════
