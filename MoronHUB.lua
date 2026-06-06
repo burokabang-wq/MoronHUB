@@ -1866,6 +1866,10 @@ local function SmartFarmLoop()
                     -- Start with MoveTo
                     hum:MoveTo(targetPos)
                     
+                    -- Calculate total distance for percentage-based speed control
+                    local startPos = hrp.Position
+                    local totalDistance = (startPos - targetPos).Magnitude
+                    
                     -- Track position to detect stuck
                     local lastPos = hrp.Position
                     local stuckFrames = 0
@@ -1884,14 +1888,16 @@ local function SmartFarmLoop()
                         if not curHrp or not curHum then pcall(DeactivateSpeedBoost); break end
                         if curHum.Health <= 0 then pcall(DeactivateSpeedBoost); break end
                         
-                        -- Check distance
+                        -- Check distance & percentage traveled
                         local dist = (curHrp.Position - targetPos).Magnitude
+                        local traveled = totalDistance - dist
+                        local percent = (totalDistance > 0) and (traveled / totalDistance * 100) or 100
                         
-                        -- Deactivate speed EARLY (dist < 60) so we walk normally into kick zone
-                        -- Speed must be OFF before entering kick zone for brainrot to collect
-                        if dist < 60 and _speedBoostActive then
+                        -- Deactivate speed after 95% of journey completed
+                        -- Character walks normally for the last 5% to ensure brainrot collects
+                        if percent >= 95 and _speedBoostActive then
                             pcall(DeactivateSpeedBoost)
-                            S.Status = "Speed off, walking to kick zone..."
+                            S.Status = "Speed off, entering kick zone..."
                         end
                         
                         if dist < 8 then
