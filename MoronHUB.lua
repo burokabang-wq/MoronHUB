@@ -281,15 +281,39 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
             embeds = {embed}
         })
         
-        -- Use request/http_request/syn.request depending on executor
-        local httpReq = (syn and syn.request) or (http and http.request) or http_request or request or fluxus_request
-        if httpReq then
-            httpReq({
-                Url = S.WebhookURL,
-                Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = payload
-            })
+        -- Send HTTP request (compatible with Delta, Fluxus, Solara, Wave, Synapse, etc.)
+        local success, err = pcall(function()
+            local httpReq = request or http_request or (syn and syn.request) or (http and http.request) or fluxus_request
+            if httpReq then
+                httpReq({
+                    Url = S.WebhookURL,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = payload
+                })
+                print("[Moron HUB] Webhook sent successfully!")
+            else
+                -- Delta fallback: try HttpService:PostAsync or game:HttpPost
+                local sent = false
+                pcall(function()
+                    HttpService:PostAsync(S.WebhookURL, payload)
+                    sent = true
+                end)
+                if not sent then
+                    pcall(function()
+                        game:HttpPost(S.WebhookURL, payload, "application/json")
+                        sent = true
+                    end)
+                end
+                if sent then
+                    print("[Moron HUB] Webhook sent via fallback method!")
+                else
+                    warn("[Moron HUB] No HTTP function available! Webhook cannot be sent.")
+                end
+            end
+        end)
+        if not success then
+            warn("[Moron HUB] Webhook error: " .. tostring(err))
         end
     end)
 end
@@ -363,14 +387,26 @@ SendDisconnectWebhook = function(disconnectReason)
             embeds = {embed}
         })
         
-        local httpReq = (syn and syn.request) or (http and http.request) or http_request or request or fluxus_request
-        if httpReq then
-            httpReq({
-                Url = S.WebhookURL,
-                Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = payload
-            })
+        -- Send HTTP request (compatible with Delta, Fluxus, Solara, Wave, Synapse, etc.)
+        local success, err = pcall(function()
+            local httpReq = request or http_request or (syn and syn.request) or (http and http.request) or fluxus_request
+            if httpReq then
+                httpReq({
+                    Url = S.WebhookURL,
+                    Method = "POST",
+                    Headers = {["Content-Type"] = "application/json"},
+                    Body = payload
+                })
+                print("[Moron HUB] Disconnect webhook sent!")
+            else
+                local sent = false
+                pcall(function() HttpService:PostAsync(S.WebhookURL, payload); sent = true end)
+                if not sent then pcall(function() game:HttpPost(S.WebhookURL, payload, "application/json"); sent = true end) end
+                if not sent then warn("[Moron HUB] Disconnect webhook: No HTTP function available!") end
+            end
+        end)
+        if not success then
+            warn("[Moron HUB] Disconnect webhook error: " .. tostring(err))
         end
     end)
 end
@@ -2696,11 +2732,18 @@ Button(P_Webhook, "Send Test Notification", function()
         Notify("Moron HUB", "Please enter a webhook URL first!", 3)
         return
     end
+    print("[Moron HUB] Sending test webhook to: " .. string.sub(S.WebhookURL, 1, 50) .. "...")
+    print("[Moron HUB] Checking HTTP functions...")
+    print("[Moron HUB] request: " .. tostring(request))
+    print("[Moron HUB] http_request: " .. tostring(http_request))
+    print("[Moron HUB] syn: " .. tostring(syn))
+    print("[Moron HUB] http: " .. tostring(http))
+    print("[Moron HUB] fluxus_request: " .. tostring(fluxus_request))
     local origEnabled = S.WebhookEnabled
     S.WebhookEnabled = true
     SendWebhook("Test Brainrot", "Golden", 999999, "Legendary", "Webhook Test - Connection OK!")
     S.WebhookEnabled = origEnabled
-    Notify("Moron HUB", "Test message sent! Check your Discord.", 3)
+    Notify("Moron HUB", "Test sent! Check F9 console for debug info.", 3)
 end, 9)
 
 Section(P_Webhook, "LAST 3 GOOD ROLLS", 10)
