@@ -1868,36 +1868,17 @@ local function ActivateSpeedBoost()
         return char and char:FindFirstChildOfClass("Humanoid")
     end
     
-    local function getHRP()
-        local char = LP.Character
-        return char and char:FindFirstChild("HumanoidRootPart")
-    end
-    
-    -- TECHNIQUE 1: Hook getrawmetatable to spoof WalkSpeed reading
-    -- This makes anti-cheat think WalkSpeed is normal when it reads it
-    pcall(function()
-        if getrawmetatable and setreadonly and newcclosure then
-            local mt = getrawmetatable(game)
-            setreadonly(mt, false)
-            local oldIndex = mt.__index
-            mt.__index = newcclosure(function(self, prop)
-                if _speedBoostActive and prop == "WalkSpeed" and self:IsA("Humanoid") then
-                    -- Return fake normal speed to anti-cheat
-                    return 22
-                end
-                return oldIndex(self, prop)
-            end)
-            print("[MoronHUB] Speed Boost: Metatable hook applied")
-        end
-    end)
-    
-    -- TECHNIQUE 2: GetPropertyChangedSignal - re-apply speed when game resets it
+    -- TECHNIQUE 1: GetPropertyChangedSignal - instantly re-apply speed when game resets it
     pcall(function()
         local hum = getHumanoid()
         if hum then
             local conn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-                if _speedBoostActive and hum.WalkSpeed ~= _targetSpeed then
-                    hum.WalkSpeed = _targetSpeed
+                if _speedBoostActive then
+                    task.defer(function()
+                        if hum and _speedBoostActive then
+                            hum.WalkSpeed = _targetSpeed
+                        end
+                    end)
                 end
             end)
             table.insert(_speedConnections, conn)
@@ -1906,44 +1887,21 @@ local function ActivateSpeedBoost()
         end
     end)
     
-    -- TECHNIQUE 3: Continuous WalkSpeed enforcement loop
-    local conn3 = game:GetService("RunService").Heartbeat:Connect(function()
-        if not _speedBoostActive then return end
-        pcall(function()
-            local hum = getHumanoid()
-            if hum then
-                hum.WalkSpeed = _targetSpeed
-            end
-        end)
+    -- TECHNIQUE 2: Lightweight loop (every 0.2s, not every frame)
+    task.spawn(function()
+        while _speedBoostActive do
+            pcall(function()
+                local hum = getHumanoid()
+                if hum then
+                    hum.WalkSpeed = _targetSpeed
+                end
+            end)
+            task.wait(0.2)
+        end
     end)
-    table.insert(_speedConnections, conn3)
     
-    -- TECHNIQUE 4: Velocity boost - add extra velocity in movement direction
-    -- This works even if WalkSpeed is locked because it adds physics force
-    local conn4 = game:GetService("RunService").Heartbeat:Connect(function()
-        if not _speedBoostActive then return end
-        pcall(function()
-            local hrp = getHRP()
-            local hum = getHumanoid()
-            if not hrp or not hum then return end
-            
-            -- Only boost if player is actually moving
-            local moveDir = hum.MoveDirection
-            if moveDir.Magnitude > 0 then
-                -- Add velocity in movement direction (boost on top of normal speed)
-                local boostAmount = 20 -- Extra studs/s boost
-                hrp.Velocity = Vector3.new(
-                    moveDir.X * boostAmount + hrp.Velocity.X * 0.5,
-                    hrp.Velocity.Y,
-                    moveDir.Z * boostAmount + hrp.Velocity.Z * 0.5
-                )
-            end
-        end)
-    end)
-    table.insert(_speedConnections, conn4)
-    
-    -- Re-apply on respawn
-    local conn5 = LP.CharacterAdded:Connect(function(char)
+    -- TECHNIQUE 3: Re-apply on respawn
+    local conn3 = LP.CharacterAdded:Connect(function(char)
         if not _speedBoostActive then return end
         task.wait(1)
         pcall(function()
@@ -1951,15 +1909,19 @@ local function ActivateSpeedBoost()
             if hum then
                 hum.WalkSpeed = _targetSpeed
                 local conn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
-                    if _speedBoostActive and hum.WalkSpeed ~= _targetSpeed then
-                        hum.WalkSpeed = _targetSpeed
+                    if _speedBoostActive then
+                        task.defer(function()
+                            if hum and _speedBoostActive then
+                                hum.WalkSpeed = _targetSpeed
+                            end
+                        end)
                     end
                 end)
                 table.insert(_speedConnections, conn)
             end
         end)
     end)
-    table.insert(_speedConnections, conn5)
+    table.insert(_speedConnections, conn3)
     
     print("[MoronHUB] Speed Boost ACTIVATED! Target speed: " .. _targetSpeed)
 end
@@ -1973,16 +1935,7 @@ local function DeactivateSpeedBoost()
     end
     _speedConnections = {}
     
-    -- Restore metatable hook (remove spoof)
-    pcall(function()
-        if getrawmetatable and setreadonly then
-            local mt = getrawmetatable(game)
-            setreadonly(mt, false)
-            -- The hook checks _speedBoostActive so it will pass through normally now
-        end
-    end)
-    
-    -- Reset WalkSpeed
+    -- Reset WalkSpeed to let game control it again
     pcall(function()
         local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
         if hum then hum.WalkSpeed = 22 end
