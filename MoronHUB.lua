@@ -70,8 +70,7 @@ local S = {
     Auto2xBonus = false,
     AutoBuyWeight = false,
     TargetWeight = "None",
-    -- Potion
-    AutoPotion = false,
+
     -- Player
     GodMode = false,
     AntiAFK = true,
@@ -95,7 +94,6 @@ local SAVE_KEYS = {
     "AutoBaseUpgrade", "AutoFavorite", "AutoSell", "AutoPlaceBest", "AutoPlotUpgrade",
     "MinFavCPS", "MinUnfavCPS", "AutoPlaceBestGlobal",
     "AutoTrain", "AutoTrainCollect", "Auto2xBonus", "AutoBuyWeight", "TargetWeight",
-    "AutoPotion",
     "GodMode", "AntiAFK", "FPSBoost",
     "WebhookEnabled", "WebhookURL"
 }
@@ -1489,6 +1487,211 @@ local function WaitForRespawn()
     return true
 end
 
+
+-- ══════════════════════════════════════════════════════════════
+-- SPEED BOOST BYPASS (Integrated into Smart Farm)
+-- Auto-activates on Good Roll, auto-deactivates near Kick Zone
+-- ══════════════════════════════════════════════════════════════
+local _origSpeedData = {}
+local _speedBoostConnections = {}
+local _disabledScripts = {}
+local _speedBoostActive = false
+
+local function ActivateSpeedBoost()
+    if _speedBoostActive then return end -- Already active
+    _speedBoostActive = true
+    
+    local targetSpeed = 200 -- Target WalkSpeed
+    local char = LP.Character
+    if not char then
+        print("[MoronHUB] Speed Boost: No character found")
+        _speedBoostActive = false
+        return
+    end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not hrp then
+        print("[MoronHUB] Speed Boost: No humanoid/HRP found")
+        _speedBoostActive = false
+        return
+    end
+    
+    print("[MoronHUB] Speed Boost: ACTIVATING (Good Roll detected)...")
+    
+    -- ═══ TECHNIQUE 1: Disable WalkSpeed monitor connections ═══
+    pcall(function()
+        if getconnections then
+            local signal = hum:GetPropertyChangedSignal("WalkSpeed")
+            local conns = getconnections(signal)
+            for _, conn in pairs(conns) do
+                pcall(function()
+                    conn:Disable()
+                end)
+            end
+            print("[MoronHUB] Speed Boost: Disabled " .. #conns .. " WalkSpeed connections")
+        end
+    end)
+    
+    -- ═══ TECHNIQUE 2: Disable LocalScripts that control speed ═══
+    pcall(function()
+        for _, obj in pairs(char:GetChildren()) do
+            if obj:IsA("LocalScript") and obj.Enabled then
+                local shouldDisable = false
+                pcall(function()
+                    if debug and debug.getconstants then
+                        local constants = debug.getconstants(obj)
+                        for _, c in pairs(constants) do
+                            if type(c) == "string" and (c == "WalkSpeed" or c == "SpeedData" or c == "GetSpeedFromLevel") then
+                                shouldDisable = true
+                            end
+                        end
+                    end
+                end)
+                if shouldDisable then
+                    obj.Disabled = true
+                    table.insert(_disabledScripts, obj)
+                    print("[MoronHUB] Speed Boost: Disabled script: " .. obj.Name)
+                end
+            end
+        end
+        local PS = LP:FindFirstChild("PlayerScripts")
+        if PS then
+            for _, obj in pairs(PS:GetDescendants()) do
+                if obj:IsA("LocalScript") and obj.Enabled then
+                    local shouldDisable = false
+                    pcall(function()
+                        if debug and debug.getconstants then
+                            local constants = debug.getconstants(obj)
+                            for _, c in pairs(constants) do
+                                if type(c) == "string" and (c == "WalkSpeed" or c == "GetSpeedFromLevel") then
+                                    shouldDisable = true
+                                end
+                            end
+                        end
+                    end)
+                    if shouldDisable then
+                        obj.Disabled = true
+                        table.insert(_disabledScripts, obj)
+                        print("[MoronHUB] Speed Boost: Disabled PlayerScript: " .. obj:GetFullName())
+                    end
+                end
+            end
+        end
+    end)
+    
+    -- ═══ TECHNIQUE 3: Modify SpeedData module ═══
+    pcall(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local SpeedData = require(RS.Shared.Data.SpeedData)
+        _origSpeedData.SPEED_INCREMENT = SpeedData.SPEED_INCREMENT
+        _origSpeedData.BASE_SPEED = SpeedData.BASE_SPEED
+        SpeedData.SPEED_INCREMENT = SpeedData.SPEED_INCREMENT * 2
+        if SpeedData.cachedSpeeds then
+            for k, _ in pairs(SpeedData.cachedSpeeds) do
+                SpeedData.cachedSpeeds[k] = nil
+            end
+        end
+        if SpeedData.GetSpeedFromLevel then
+            _origSpeedData.GetSpeedFromLevel = SpeedData.GetSpeedFromLevel
+            SpeedData.GetSpeedFromLevel = function(level)
+                return _origSpeedData.GetSpeedFromLevel(level) * 2
+            end
+        end
+        print("[MoronHUB] Speed Boost: Modified SpeedData (x2)")
+    end)
+    
+    -- ═══ TECHNIQUE 4: Metatable spoof (anti-cheat evasion) ═══
+    pcall(function()
+        if getrawmetatable and setreadonly and newcclosure then
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            local oldIndex = mt.__index
+            _origSpeedData._oldIndex = oldIndex
+            mt.__index = newcclosure(function(self, prop)
+                if self == hum and prop == "WalkSpeed" then
+                    return 22 -- Spoof normal speed to anti-cheat
+                end
+                return oldIndex(self, prop)
+            end)
+            print("[MoronHUB] Speed Boost: Metatable hook applied (spoof as 22)")
+        end
+    end)
+    
+    -- ═══ TECHNIQUE 5: Force WalkSpeed + maintain loop ═══
+    hum.WalkSpeed = targetSpeed
+    print("[MoronHUB] Speed Boost ACTIVATED! WalkSpeed = " .. targetSpeed)
+    
+    -- Internal loop to keep forcing speed while active
+    task.spawn(function()
+        while _speedBoostActive and S.Running do
+            pcall(function()
+                local c = LP.Character
+                if c then
+                    local h = c:FindFirstChildOfClass("Humanoid")
+                    if h and h.Health > 0 then
+                        h.WalkSpeed = targetSpeed
+                    end
+                end
+            end)
+            task.wait(0.1)
+        end
+    end)
+end
+
+local function DeactivateSpeedBoost()
+    if not _speedBoostActive then return end -- Already inactive
+    _speedBoostActive = false
+    
+    print("[MoronHUB] Speed Boost: DEACTIVATING (near kick zone)...")
+    
+    -- ═══ CLEANUP: Restore everything ═══
+    pcall(function()
+        -- Restore metatable
+        if _origSpeedData._oldIndex and getrawmetatable and setreadonly then
+            local mt = getrawmetatable(game)
+            setreadonly(mt, false)
+            mt.__index = _origSpeedData._oldIndex
+        end
+    end)
+    pcall(function()
+        -- Restore SpeedData
+        local RS = game:GetService("ReplicatedStorage")
+        local SpeedData = require(RS.Shared.Data.SpeedData)
+        if _origSpeedData.SPEED_INCREMENT then
+            SpeedData.SPEED_INCREMENT = _origSpeedData.SPEED_INCREMENT
+        end
+        if _origSpeedData.BASE_SPEED then
+            SpeedData.BASE_SPEED = _origSpeedData.BASE_SPEED
+        end
+        if _origSpeedData.GetSpeedFromLevel then
+            SpeedData.GetSpeedFromLevel = _origSpeedData.GetSpeedFromLevel
+        end
+        if SpeedData.cachedSpeeds then
+            for k, _ in pairs(SpeedData.cachedSpeeds) do
+                SpeedData.cachedSpeeds[k] = nil
+            end
+        end
+    end)
+    pcall(function()
+        -- Re-enable disabled scripts
+        for _, script in pairs(_disabledScripts) do
+            pcall(function() script.Disabled = false end)
+        end
+        _disabledScripts = {}
+    end)
+    pcall(function()
+        -- Restore WalkSpeed to normal
+        local c = LP.Character
+        if c then
+            local h = c:FindFirstChildOfClass("Humanoid")
+            if h then h.WalkSpeed = 22 end
+        end
+    end)
+    
+    _origSpeedData = {}
+    print("[MoronHUB] Speed Boost DEACTIVATED - Normal speed restored")
+end
+
 -- Forward declaration for notification function (defined later with UI)
 local ShowRollNotification
 
@@ -1633,9 +1836,9 @@ local function SmartFarmLoop()
                 pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
                 
                 -- NOW we are the brainrot, positioned FAR from kick zone.
-                -- Wave kill is SERVER-SIDE. No speed/SlowMode modification.
-                -- Just run normally with MoveTo using character's natural speed.
-                -- If wave catches us, we die and respawn.
+                -- Activate speed boost to run FAST back to kick zone!
+                -- Will be deactivated when we arrive near kick zone.
+                pcall(ActivateSpeedBoost)
                 
                 local kr = GetKickReady()
                 local hum = GetHum()
@@ -1675,16 +1878,17 @@ local function SmartFarmLoop()
                         task.wait(0.5)
                         
                         local curChar = LP.Character
-                        if not curChar then break end
+                        if not curChar then pcall(DeactivateSpeedBoost); break end
                         local curHrp = curChar:FindFirstChild("HumanoidRootPart")
                         local curHum = curChar:FindFirstChildOfClass("Humanoid")
-                        if not curHrp or not curHum then break end
-                        if curHum.Health <= 0 then break end
+                        if not curHrp or not curHum then pcall(DeactivateSpeedBoost); break end
+                        if curHum.Health <= 0 then pcall(DeactivateSpeedBoost); break end
                         
                         -- Check distance
                         local dist = (curHrp.Position - targetPos).Magnitude
                         if dist < 8 then
                             arrived = true
+                            pcall(DeactivateSpeedBoost) -- Deactivate speed near kick zone
                             break
                         end
                         
@@ -1731,8 +1935,9 @@ local function SmartFarmLoop()
                         end)
                     end
                     
-                    -- If we died (wave caught us), handle respawn
+                    -- If we died (wave caught us), deactivate speed & handle respawn
                     if not arrived then
+                        pcall(DeactivateSpeedBoost) -- Deactivate speed on death too
                         S.Status = "Wave caught us, respawning..."
                         WaitForRespawn()
                     end
@@ -1759,6 +1964,7 @@ local function SmartFarmLoop()
         
         task.wait(0.5)
     end
+    pcall(DeactivateSpeedBoost) -- Ensure speed is off when Smart Farm stops
     S.Status = "Idle"
 end
 
@@ -1851,200 +2057,6 @@ local function LoopGod()
     GodOff()
 end
 
-
--- ══════════════════════════════════════════════════════════════
--- SPEED BOOST BYPASS (x2 Run Speed - Multi-technique)
--- ══════════════════════════════════════════════════════════════
-local _origSpeedData = {}
-local _speedBoostConnections = {}
-local _disabledScripts = {}
-
-local function LoopPotion()
-    local targetSpeed = 200 -- Target WalkSpeed
-    local char = LP.Character
-    if not char then
-        print("[MoronHUB] Speed Boost: No character found")
-        return
-    end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hum or not hrp then
-        print("[MoronHUB] Speed Boost: No humanoid/HRP found")
-        return
-    end
-    
-    print("[MoronHUB] Speed Boost: Starting multi-technique bypass...")
-    
-    -- ═══ TECHNIQUE 1: Disable WalkSpeed monitor scripts ═══
-    -- Find and disable connections that reset WalkSpeed
-    pcall(function()
-        if getconnections then
-            local signal = hum:GetPropertyChangedSignal("WalkSpeed")
-            local conns = getconnections(signal)
-            for _, conn in pairs(conns) do
-                pcall(function()
-                    conn:Disable()
-                end)
-            end
-            print("[MoronHUB] Speed Boost: Disabled " .. #conns .. " WalkSpeed connections")
-        end
-    end)
-    
-    -- ═══ TECHNIQUE 2: Disable LocalScripts that control speed ═══
-    pcall(function()
-        -- Check character for speed-controlling scripts
-        for _, obj in pairs(char:GetChildren()) do
-            if obj:IsA("LocalScript") and obj.Enabled then
-                -- Check if this script references WalkSpeed or speed
-                local shouldDisable = false
-                pcall(function()
-                    if debug and debug.getconstants then
-                        local constants = debug.getconstants(obj)
-                        for _, c in pairs(constants) do
-                            if type(c) == "string" and (c == "WalkSpeed" or c == "SpeedData" or c == "GetSpeedFromLevel") then
-                                shouldDisable = true
-                            end
-                        end
-                    end
-                end)
-                if shouldDisable then
-                    obj.Disabled = true
-                    table.insert(_disabledScripts, obj)
-                    print("[MoronHUB] Speed Boost: Disabled script: " .. obj.Name)
-                end
-            end
-        end
-        -- Also check PlayerScripts
-        local PS = LP:FindFirstChild("PlayerScripts")
-        if PS then
-            for _, obj in pairs(PS:GetDescendants()) do
-                if obj:IsA("LocalScript") and obj.Enabled then
-                    local shouldDisable = false
-                    pcall(function()
-                        if debug and debug.getconstants then
-                            local constants = debug.getconstants(obj)
-                            for _, c in pairs(constants) do
-                                if type(c) == "string" and (c == "WalkSpeed" or c == "GetSpeedFromLevel") then
-                                    shouldDisable = true
-                                end
-                            end
-                        end
-                    end)
-                    if shouldDisable then
-                        obj.Disabled = true
-                        table.insert(_disabledScripts, obj)
-                        print("[MoronHUB] Speed Boost: Disabled PlayerScript: " .. obj:GetFullName())
-                    end
-                end
-            end
-        end
-    end)
-    
-    -- ═══ TECHNIQUE 3: Modify SpeedData module ═══
-    pcall(function()
-        local RS = game:GetService("ReplicatedStorage")
-        local SpeedData = require(RS.Shared.Data.SpeedData)
-        _origSpeedData.SPEED_INCREMENT = SpeedData.SPEED_INCREMENT
-        _origSpeedData.BASE_SPEED = SpeedData.BASE_SPEED
-        SpeedData.SPEED_INCREMENT = SpeedData.SPEED_INCREMENT * 2
-        if SpeedData.cachedSpeeds then
-            for k, _ in pairs(SpeedData.cachedSpeeds) do
-                SpeedData.cachedSpeeds[k] = nil
-            end
-        end
-        -- Also override GetSpeedFromLevel if possible
-        if SpeedData.GetSpeedFromLevel then
-            _origSpeedData.GetSpeedFromLevel = SpeedData.GetSpeedFromLevel
-            SpeedData.GetSpeedFromLevel = function(level)
-                return _origSpeedData.GetSpeedFromLevel(level) * 2
-            end
-        end
-        print("[MoronHUB] Speed Boost: Modified SpeedData (SPEED_INCREMENT x2 + GetSpeedFromLevel x2)")
-    end)
-    
-    -- ═══ TECHNIQUE 4: Set WalkSpeed + metatable spoof ═══
-    pcall(function()
-        if getrawmetatable and setreadonly and newcclosure then
-            local mt = getrawmetatable(game)
-            setreadonly(mt, false)
-            local oldIndex = mt.__index
-            _origSpeedData._oldIndex = oldIndex
-            mt.__index = newcclosure(function(self, prop)
-                if self == hum and prop == "WalkSpeed" then
-                    return 22 -- Return normal speed to anti-cheat
-                end
-                return oldIndex(self, prop)
-            end)
-            print("[MoronHUB] Speed Boost: Metatable hook applied (spoof WalkSpeed as 22)")
-        else
-            print("[MoronHUB] Speed Boost: getrawmetatable not available, skipping hook")
-        end
-    end)
-    
-    -- ═══ TECHNIQUE 5: Force WalkSpeed in loop ═══
-    hum.WalkSpeed = targetSpeed
-    print("[MoronHUB] Speed Boost ACTIVATED! Target: " .. targetSpeed)
-    
-    while S.AutoPotion and S.Running do
-        pcall(function()
-            local c = LP.Character
-            if c then
-                local h = c:FindFirstChildOfClass("Humanoid")
-                if h then
-                    h.WalkSpeed = targetSpeed
-                end
-            end
-        end)
-        task.wait(0.1)
-    end
-    
-    -- ═══ CLEANUP: Restore everything ═══
-    pcall(function()
-        -- Restore metatable
-        if _origSpeedData._oldIndex and getrawmetatable and setreadonly then
-            local mt = getrawmetatable(game)
-            setreadonly(mt, false)
-            mt.__index = _origSpeedData._oldIndex
-        end
-    end)
-    pcall(function()
-        -- Restore SpeedData
-        local RS = game:GetService("ReplicatedStorage")
-        local SpeedData = require(RS.Shared.Data.SpeedData)
-        if _origSpeedData.SPEED_INCREMENT then
-            SpeedData.SPEED_INCREMENT = _origSpeedData.SPEED_INCREMENT
-        end
-        if _origSpeedData.BASE_SPEED then
-            SpeedData.BASE_SPEED = _origSpeedData.BASE_SPEED
-        end
-        if _origSpeedData.GetSpeedFromLevel then
-            SpeedData.GetSpeedFromLevel = _origSpeedData.GetSpeedFromLevel
-        end
-        if SpeedData.cachedSpeeds then
-            for k, _ in pairs(SpeedData.cachedSpeeds) do
-                SpeedData.cachedSpeeds[k] = nil
-            end
-        end
-    end)
-    pcall(function()
-        -- Re-enable disabled scripts
-        for _, script in pairs(_disabledScripts) do
-            pcall(function() script.Disabled = false end)
-        end
-        _disabledScripts = {}
-    end)
-    pcall(function()
-        -- Restore WalkSpeed
-        local c = LP.Character
-        if c then
-            local h = c:FindFirstChildOfClass("Humanoid")
-            if h then h.WalkSpeed = 22 end
-        end
-    end)
-    
-    _origSpeedData = {}
-    print("[MoronHUB] Speed Boost DEACTIVATED - Everything restored")
-end
 
 -- ══════════════════════════════════════════════════════════════
 -- UI DESIGN
@@ -2932,10 +2944,6 @@ Section(P_Upgrade, "SPEED & BASE", 4)
 Toggle(P_Upgrade, "Auto Buy Speed", "AutoBuySpeed", function(v) if v then task.spawn(LoopBuySpeed) end end, 5)
 Toggle(P_Upgrade, "Auto Base Upgrade", "AutoBaseUpgrade", function(v) if v then task.spawn(LoopBaseUpgrade) end end, 6)
 
-Section(P_Upgrade, "SPEED BOOST (Bypass Potion)", 7)
-InfoLabel(P_Upgrade, "Speed saat ini x2 + block jatuh cepat + anim x2", 8)
-InfoLabel(P_Upgrade, "Tidak perlu potion/event, langsung bypass client", 9)
-Toggle(P_Upgrade, "Speed Boost x2 (Bypass)", "AutoPotion", function(v) if v then task.spawn(LoopPotion) end end, 10)
 
 -- ═══════════════ TRAIN TAB (WEIGHT LIFTING) ═══════════════
 Section(P_Train, "WEIGHT TRAINING", 1)
