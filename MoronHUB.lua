@@ -1851,106 +1851,102 @@ end
 -- AUTO POTION (Farm Potion - x2 Kick & Run Speed)
 -- ══════════════════════════════════════════════════════════════
 local function DoAutoPotion()
+    -- BYPASS: Apply Farm Potion effect (x2 kick & run speed) client-side
+    -- No need to own the potion or wait for Admin event
+    -- This directly modifies WalkSpeed and block physics
     pcall(function()
-        -- The Farm Potion (x2 kick & run speed, 10 min) is from Rocky's Store (Update 5)
-        -- Console shows: NetworkModule.FireServer calls rev_UsePotion via WaitForChild
-        -- This means the correct call is: NetworkModule.FireServer("UsePotion", potionName)
-        -- The remote is rev_UsePotion in ReplicatedStorage.Shared.Packages.Network
+        local char = LP.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
         
-        local potionNames = {"Farm", "FarmPotion", "Farm Potion", "Speed", "SpeedPotion", "Speed Potion", "Admin", "AdminPotion"}
-        local allPotionNames = {"Farm", "Weight", "Cash", "Luck", "FarmPotion", "WeightPotion", "CashPotion", "LuckPotion"}
-        
-        -- Method 1 (PRIMARY): Use NetworkModule.FireServer("UsePotion", potionName)
-        -- This is confirmed from the stack trace showing rev_UsePotion
-        if NetworkModule and type(NetworkModule) == "table" and NetworkModule.FireServer then
-            for _, pName in ipairs(potionNames) do
-                pcall(function() NetworkModule.FireServer("UsePotion", pName) end)
-            end
-            -- Also try without argument (maybe it uses all potions)
-            pcall(function() NetworkModule.FireServer("UsePotion") end)
-            -- Try BuyAndUse pattern
-            for _, pName in ipairs(allPotionNames) do
-                pcall(function() NetworkModule.FireServer("BuyPotion", pName) end)
-            end
-            print("[MoronHUB] Auto Potion: Fired NetworkModule.FireServer UsePotion")
-        end
-        
-        -- Method 2: Direct fire rev_UsePotion remote if found
-        local usePotionRemote = R.UsePotion
-        if not usePotionRemote then
-            -- Try to find it fresh (it might be created dynamically)
-            pcall(function()
-                local nf = RS:FindFirstChild("Shared") and RS.Shared:FindFirstChild("Packages") and RS.Shared.Packages:FindFirstChild("Network")
-                if nf then usePotionRemote = nf:FindFirstChild("rev_UsePotion") end
-            end)
-        end
-        if usePotionRemote then
-            for _, pName in ipairs(potionNames) do
-                pcall(function() usePotionRemote:FireServer(pName) end)
-            end
-            pcall(function() usePotionRemote:FireServer() end)
-            print("[MoronHUB] Auto Potion: Fired rev_UsePotion directly")
-        end
-        
-        -- Method 3: Try rev_Shop_Buy with potion shop categories
-        local shopRemote = R.ShopBuy
-        if shopRemote then
-            local potionCategories = {"PotionShop", "Potions", "RockyShop", "Rocky", "Potion"}
-            for _, cat in ipairs(potionCategories) do
-                for _, pName in ipairs(allPotionNames) do
-                    pcall(function() shopRemote:FireServer(cat, pName) end)
-                end
-            end
-        end
-        
-        -- Method 4: Try to find and click potion GUI button in PlayerGui
-        pcall(function()
-            local pg = LP:FindFirstChild("PlayerGui")
-            if not pg then return end
-            for _, gui in ipairs(pg:GetDescendants()) do
-                if gui:IsA("TextButton") or gui:IsA("ImageButton") then
-                    local btnText = ""
-                    pcall(function() btnText = string.lower(gui.Text or "") end)
-                    local btnName = string.lower(gui.Name or "")
-                    if string.find(btnName, "potion") or string.find(btnName, "farm") 
-                       or string.find(btnText, "potion") or string.find(btnText, "farm") then
-                        if gui.Visible ~= false then
-                            if getconnections then
-                                pcall(function()
-                                    for _, conn in pairs(getconnections(gui.MouseButton1Click)) do conn:Fire() end
-                                end)
-                                pcall(function()
-                                    for _, conn in pairs(getconnections(gui.Activated)) do conn:Fire() end
-                                end)
-                            end
-                        end
+        -- 1) Boost WalkSpeed (Farm Potion = x2 run speed)
+        -- Default WalkSpeed in KALB is usually 16-25
+        -- We set it to double the current or a high value
+        local baseSpeed = hum:GetAttribute("BaseWalkSpeed") or hum:GetAttribute("DefaultSpeed") or 16
+        local boostedSpeed = math.max(baseSpeed * 2, 50)
+        hum.WalkSpeed = boostedSpeed
+    end)
+    
+    -- 2) Speed up block descent after kick (make block fall faster)
+    pcall(function()
+        -- Find the kicked block in workspace and increase its downward velocity
+        for _, obj in ipairs(WS:GetChildren()) do
+            if obj:IsA("Model") and (string.find(string.lower(obj.Name), "block") or string.find(string.lower(obj.Name), "lucky")) then
+                local primary = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                if primary and primary.Position.Y > 10 then
+                    -- Block is in the air, speed up its fall
+                    primary.CustomPhysicalProperties = PhysicalProperties.new(10, 0.1, 0, 0, 0)
+                    if primary.Anchored == false then
+                        primary.Velocity = primary.Velocity + Vector3.new(0, -100, 0)
                     end
                 end
             end
-        end)
-        
-        -- Method 5: Find any remote with "Potion" in its name dynamically
-        pcall(function()
-            local nf = RS:FindFirstChild("Shared") and RS.Shared:FindFirstChild("Packages") and RS.Shared.Packages:FindFirstChild("Network")
-            if nf then
-                for _, child in ipairs(nf:GetChildren()) do
-                    if string.find(string.lower(child.Name), "potion") then
-                        for _, pName in ipairs(allPotionNames) do
-                            pcall(function() child:FireServer(pName) end)
-                        end
-                        pcall(function() child:FireServer() end)
+        end
+    end)
+    
+    -- 3) Reduce kick animation/cooldown by speeding up AnimationTrack
+    pcall(function()
+        local char = LP.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local animator = hum:FindFirstChildOfClass("Animator")
+        if animator then
+            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                if track.Speed < 2 then
+                    track:AdjustSpeed(2)
+                end
+            end
+        end
+    end)
+    
+    -- 4) Try to set potion-related attributes on player (some games check attributes)
+    pcall(function()
+        LP:SetAttribute("FarmPotion", true)
+        LP:SetAttribute("SpeedBoost", true)
+        LP:SetAttribute("PotionActive", true)
+        LP:SetAttribute("FarmPotionExpiry", os.time() + 9999)
+    end)
+    pcall(function()
+        local char = LP.Character
+        if char then
+            char:SetAttribute("FarmPotion", true)
+            char:SetAttribute("SpeedBoost", true)
+            char:SetAttribute("SpeedMultiplier", 2)
+        end
+    end)
+    
+    -- 5) Modify leaderstats or player values if they control speed
+    pcall(function()
+        local ls = LP:FindFirstChild("leaderstats") or LP:FindFirstChild("PlayerData") or LP:FindFirstChild("Data")
+        if ls then
+            for _, v in ipairs(ls:GetDescendants()) do
+                if string.find(string.lower(v.Name), "speed") or string.find(string.lower(v.Name), "potion") then
+                    if v:IsA("NumberValue") or v:IsA("IntValue") then
+                        v.Value = v.Value * 2
+                    elseif v:IsA("BoolValue") then
+                        v.Value = true
                     end
                 end
             end
-        end)
+        end
     end)
 end
 
 local function LoopPotion()
     while S.AutoPotion and S.Running do
         DoAutoPotion()
-        task.wait(300) -- Re-apply every 5 minutes (potion lasts 10 min)
+        task.wait(0.5) -- Apply continuously to maintain speed boost
     end
+    -- Reset speed when turned off
+    pcall(function()
+        local char = LP.Character
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then hum.WalkSpeed = 16 end
+        end
+    end)
 end
 
 -- ══════════════════════════════════════════════════════════════
@@ -2839,10 +2835,10 @@ Section(P_Upgrade, "SPEED & BASE", 4)
 Toggle(P_Upgrade, "Auto Buy Speed", "AutoBuySpeed", function(v) if v then task.spawn(LoopBuySpeed) end end, 5)
 Toggle(P_Upgrade, "Auto Base Upgrade", "AutoBaseUpgrade", function(v) if v then task.spawn(LoopBaseUpgrade) end end, 6)
 
-Section(P_Upgrade, "POTION (Rocky's Store)", 7)
-InfoLabel(P_Upgrade, "Auto use Farm Potion (x2 kick & run speed)", 8)
-InfoLabel(P_Upgrade, "Otomatis aktifkan potion tanpa perlu beli/event", 9)
-Toggle(P_Upgrade, "Auto Potion (Inf Speed)", "AutoPotion", function(v) if v then task.spawn(LoopPotion) end end, 10)
+Section(P_Upgrade, "SPEED BOOST (Bypass Potion)", 7)
+InfoLabel(P_Upgrade, "Bypass efek Farm Potion (x2 speed) tanpa beli", 8)
+InfoLabel(P_Upgrade, "WalkSpeed boost + block jatuh cepat + anim speed", 9)
+Toggle(P_Upgrade, "Speed Boost (Bypass Potion)", "AutoPotion", function(v) if v then task.spawn(LoopPotion) end end, 10)
 
 -- ═══════════════ TRAIN TAB (WEIGHT LIFTING) ═══════════════
 Section(P_Train, "WEIGHT TRAINING", 1)
