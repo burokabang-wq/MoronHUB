@@ -217,69 +217,74 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
             end)
         end
         
-        -- Get brainrot image URL
+        -- Get brainrot image URL for Discord
         local brainrotImage = ""
         pcall(function()
             local httpReqImg = request or http_request or (syn and syn.request) or (http and http.request)
             if not httpReqImg then return end
             
-            -- Method 1: Find the tool in Backpack/Character and get its TextureId or image from descendants
-            local assetId = nil
-            local player = LP
-            local tool = nil
+            -- Get the image asset ID used by in-game notification (same source)
+            local rawImageId = GetBrainrotImage(brName)
+            print("[Moron HUB] GetBrainrotImage returned: " .. tostring(rawImageId))
             
-            -- Search in Backpack
-            if player.Backpack then
-                tool = player.Backpack:FindFirstChild(brName)
-            end
-            -- Search in Character
-            if not tool and player.Character then
-                tool = player.Character:FindFirstChild(brName)
-            end
-            
-            if tool then
-                -- Try tool.TextureId first
-                if tool.TextureId and tool.TextureId ~= "" then
-                    assetId = string.match(tool.TextureId, "%d+")
-                end
-                -- Try finding Decal or ImageLabel in descendants
-                if not assetId then
-                    for _, desc in ipairs(tool:GetDescendants()) do
-                        if desc:IsA("Decal") and desc.Texture and desc.Texture ~= "" then
-                            assetId = string.match(desc.Texture, "%d+")
-                            if assetId then break end
-                        elseif desc:IsA("ImageLabel") and desc.Image and desc.Image ~= "" then
-                            assetId = string.match(desc.Image, "%d+")
-                            if assetId then break end
+            if rawImageId == "" then
+                -- Try getting from Tool directly
+                local tool = nil
+                if LP.Backpack then tool = LP.Backpack:FindFirstChild(brName) end
+                if not tool and LP.Character then tool = LP.Character:FindFirstChild(brName) end
+                if tool then
+                    if tool.TextureId and tool.TextureId ~= "" then
+                        rawImageId = tool.TextureId
+                    else
+                        for _, desc in ipairs(tool:GetDescendants()) do
+                            if desc:IsA("Decal") and desc.Texture and desc.Texture ~= "" then
+                                rawImageId = desc.Texture
+                                break
+                            end
                         end
                     end
                 end
             end
             
-            -- Method 2: Try CPSLookup image
-            if not assetId then
-                local lookup = CPSLookup[brName]
-                if lookup and lookup.image and lookup.image ~= "" then
-                    assetId = string.match(lookup.image, "%d+")
-                end
+            if rawImageId == "" then
+                print("[Moron HUB] No image found for: " .. tostring(brName))
+                return
             end
             
-            -- Convert assetId to CDN URL via Thumbnails API
-            if assetId then
-                print("[Moron HUB] Brainrot image assetId: " .. assetId)
-                local resp = httpReqImg({
-                    Url = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. assetId .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false",
-                    Method = "GET"
-                })
-                if resp and resp.Body then
-                    local imgUrl = string.match(resp.Body, '"imageUrl":"([^"]+)"')
-                    if imgUrl and imgUrl ~= "" then
-                        brainrotImage = imgUrl
-                        print("[Moron HUB] Got brainrot image: " .. imgUrl)
+            -- Extract numeric asset ID
+            local assetId = string.match(rawImageId, "%d+")
+            if not assetId then return end
+            
+            print("[Moron HUB] Using assetId: " .. assetId)
+            
+            -- Try InsertService to convert Decal ID to Image ID
+            local imageAssetId = assetId
+            pcall(function()
+                local model = game:GetService("InsertService"):LoadAsset(tonumber(assetId))
+                if model then
+                    local decal = model:FindFirstChildWhichIsA("Decal", true)
+                    if decal and decal.Texture and decal.Texture ~= "" then
+                        local realId = string.match(decal.Texture, "%d+")
+                        if realId then
+                            imageAssetId = realId
+                            print("[Moron HUB] Converted decal to image ID: " .. realId)
+                        end
                     end
+                    model:Destroy()
                 end
-            else
-                print("[Moron HUB] No image assetId found for: " .. tostring(brName))
+            end)
+            
+            -- Convert to CDN URL via Thumbnails API
+            local resp = httpReqImg({
+                Url = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. imageAssetId .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false",
+                Method = "GET"
+            })
+            if resp and resp.Body then
+                local imgUrl = string.match(resp.Body, '"imageUrl":"([^"]+)"')
+                if imgUrl and imgUrl ~= "" then
+                    brainrotImage = imgUrl
+                    print("[Moron HUB] Got brainrot CDN image: " .. imgUrl)
+                end
             end
         end)
         
