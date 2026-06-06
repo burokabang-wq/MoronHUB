@@ -218,14 +218,44 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         end
         
         -- Get brainrot image URL for Discord
+        -- NOTE: GetBrainrotImage is defined later, so we inline the logic here
         local brainrotImage = ""
         pcall(function()
-            -- Get the image asset ID used by in-game notification (same source)
-            local rawImageId = GetBrainrotImage(brName)
-            print("[Moron HUB] GetBrainrotImage returned: " .. tostring(rawImageId))
+            local rawImageId = ""
             
+            -- Method 1: From CPSLookup (already defined at this point)
+            if CPSLookup and brName then
+                local d = CPSLookup[brName]
+                if d and d.image and d.image ~= "" then
+                    rawImageId = d.image
+                end
+                -- Case-insensitive fallback
+                if rawImageId == "" then
+                    for k, v in pairs(CPSLookup) do
+                        if string.lower(k) == string.lower(brName) then
+                            if v.image and v.image ~= "" then
+                                rawImageId = v.image
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- Method 2: From EntitiesData directly
+            if rawImageId == "" and EntitiesData and EntitiesData.Brainrots and brName then
+                local data = EntitiesData.Brainrots[brName]
+                if data then
+                    local img = data.Image or data.Icon or data.Thumbnail or data.ImageId or data.IconId
+                    if img then
+                        if type(img) == "number" then rawImageId = "rbxassetid://" .. img end
+                        if type(img) == "string" and img ~= "" then rawImageId = img end
+                    end
+                end
+            end
+            
+            -- Method 3: From Tool in Backpack/Character
             if rawImageId == "" then
-                -- Try getting from Tool directly
                 local tool = nil
                 if LP.Backpack then tool = LP.Backpack:FindFirstChild(brName) end
                 if not tool and LP.Character then tool = LP.Character:FindFirstChild(brName) end
@@ -242,6 +272,8 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
                     end
                 end
             end
+            
+            print("[Moron HUB] Brainrot image raw: " .. tostring(rawImageId))
             
             if rawImageId == "" then
                 print("[Moron HUB] No image found for: " .. tostring(brName))
@@ -264,14 +296,14 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
                         local realId = string.match(decal.Texture, "%d+")
                         if realId then
                             imageAssetId = realId
-                            print("[Moron HUB] Converted decal to image ID: " .. realId)
+                            print("[Moron HUB] Converted decal->image: " .. realId)
                         end
                     end
                     model:Destroy()
                 end
             end)
             
-            -- Method 1: Use game:HttpGet (proven to work on Delta - same as loadstring)
+            -- Use game:HttpGet to get CDN URL (proven to work on Delta)
             local thumbUrl = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. imageAssetId .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false"
             local respBody = nil
             pcall(function()
@@ -282,23 +314,20 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
                 local imgUrl = string.match(respBody, '"imageUrl":"([^"]+)"')
                 if imgUrl and imgUrl ~= "" then
                     brainrotImage = imgUrl
-                    print("[Moron HUB] Got brainrot CDN image (HttpGet): " .. imgUrl)
+                    print("[Moron HUB] Got brainrot CDN: " .. imgUrl)
                     return
                 end
             end
             
-            -- Method 2: Fallback to request() if game:HttpGet fails
+            -- Fallback: request()
             local httpReqImg = request or http_request or (syn and syn.request) or (http and http.request)
             if httpReqImg then
-                local resp = httpReqImg({
-                    Url = thumbUrl,
-                    Method = "GET"
-                })
+                local resp = httpReqImg({ Url = thumbUrl, Method = "GET" })
                 if resp and resp.Body then
                     local imgUrl = string.match(resp.Body, '"imageUrl":"([^"]+)"')
                     if imgUrl and imgUrl ~= "" then
                         brainrotImage = imgUrl
-                        print("[Moron HUB] Got brainrot CDN image (request): " .. imgUrl)
+                        print("[Moron HUB] Got brainrot CDN (req): " .. imgUrl)
                     end
                 end
             end
