@@ -796,185 +796,202 @@ local function DoPlaceBest()
     pcall(function() if R.Interact then R.Interact:FireServer("PlaceBest") end end)
 end
 
-local function DoFavorite(slotId)
+-- ══════════════════════════════════════════════════════════════
+-- FAVORITE SYSTEM (uses GUID from Tools, not slot numbers)
+-- ══════════════════════════════════════════════════════════════
+
+-- Get all brainrot Tools from inventory (Backpack + Character)
+local function GetAllTools()
+    local tools = {}
     pcall(function()
-        -- Method 1: Direct remote event (most reliable)
-        if R.ToggleFav then
-            R.ToggleFav:FireServer(slotId)
-            return
+        if LP.Backpack then
+            for _, t in ipairs(LP.Backpack:GetChildren()) do
+                if t:IsA("Tool") then table.insert(tools, t) end
+            end
         end
-        -- Method 2: Network module
+        local char = LP.Character
+        if char then
+            for _, t in ipairs(char:GetChildren()) do
+                if t:IsA("Tool") then table.insert(tools, t) end
+            end
+        end
+    end)
+    return tools
+end
+
+-- Fire ToggleFav with GUID (correct method from game analysis)
+local function DoToggleFav(guid)
+    pcall(function()
+        -- Method 1: Network module FireServer (preferred - same as Luxy)
         if NetworkModule and NetworkModule.FireServer then
-            NetworkModule.FireServer("ToggleFav", slotId)
+            NetworkModule.FireServer("ToggleFav", guid)
             return
         end
-        -- Method 3: Try requiring Network fresh
-        pcall(function()
-            local net = require(RS.Shared.Packages.Network)
-            if net and net.FireServer then
-                net.FireServer("ToggleFav", slotId)
-            end
-        end)
+        -- Method 2: Direct remote event
+        if R.ToggleFav then
+            R.ToggleFav:FireServer(guid)
+            return
+        end
+        -- Method 3: Fresh require Network
+        local net = require(RS.Shared.Packages.Network)
+        if net and net.FireServer then
+            net.FireServer("ToggleFav", guid)
+        end
     end)
 end
 
--- Helper: Detect mutation from a brainrot model (multiple methods)
-local function DetectMutation(model)
-    if not model then return "None" end
-    -- Method 1: Direct attribute on model
-    local mut = model:GetAttribute("Mutation")
-    if mut and mut ~= "" and mut ~= "None" then return mut end
-    -- Method 2: Parent attribute (PlacedPart or Slot)
-    if model.Parent then
-        mut = model.Parent:GetAttribute("Mutation")
-        if mut and mut ~= "" and mut ~= "None" then return mut end
-    end
-    -- Method 3: Check children names against known mutations
-    for _, child in ipairs(model:GetChildren()) do
-        if MutMult[child.Name] and child.Name ~= "None" then
-            return child.Name
-        end
-    end
-    return "None"
-end
-
--- Helper: Detect if slot is favorited (multiple methods)
-local function IsFavorited(slot, model)
-    -- Method 1: Slot attribute
-    local fav = slot:GetAttribute("Favorite") or slot:GetAttribute("Favorited") or slot:GetAttribute("IsFavorite")
-    if fav == true then return true end
-    -- Method 2: Model attribute
-    if model then
-        fav = model:GetAttribute("Favorite") or model:GetAttribute("Favorited") or model:GetAttribute("IsFavorite")
-        if fav == true then return true end
-    end
-    -- Method 3: PlacedPart attribute
-    if model and model.Parent then
-        fav = model.Parent:GetAttribute("Favorite") or model.Parent:GetAttribute("Favorited")
-        if fav == true then return true end
-    end
-    -- Method 4: Check for visual indicator (star icon or highlight)
+-- Auto Favorite: favorite brainrot jika CPS >= MinFavCPS
+-- Auto Unfavorite: unfavorite brainrot jika CPS < MinUnfavCPS
+local function DoAutoFav()
     pcall(function()
-        for _, desc in ipairs(slot:GetDescendants()) do
-            if desc.Name:lower():find("fav") or desc.Name:lower():find("star") then
-                if desc:IsA("ImageLabel") or desc:IsA("Frame") then
-                    if desc.Visible then fav = true end
-                end
+        local tools = GetAllTools()
+        for _, tool in ipairs(tools) do
+            local guid = tool:GetAttribute("GUID")
+            if not guid then continue end
+            
+            local name = tool.Name
+            local mut = tool:GetAttribute("Mutation") or "None"
+            local isFav = tool:GetAttribute("Favorite") == true
+            local cps = CalcCPS(name, mut)
+            
+            -- Auto Favorite: CPS di atas threshold → favorite
+            if cps >= S.MinFavCPS and not isFav then
+                DoToggleFav(guid)
+                print("[MoronHUB] Favorited: " .. name .. " (CPS: " .. tostring(cps) .. ")")
+                task.wait(0.6)
+            -- Auto Unfavorite: CPS di bawah threshold → unfavorite
+            elseif cps < S.MinUnfavCPS and isFav then
+                DoToggleFav(guid)
+                print("[MoronHUB] Unfavorited: " .. name .. " (CPS: " .. tostring(cps) .. ")")
+                task.wait(0.6)
             end
         end
     end)
-    return fav == true
 end
 
--- Helper: Find brainrot model in a slot (multiple structures)
+-- ══════════════════════════════════════════════════════════════
+-- REMOVE ALL FROM BASE (unequip all placed brainrots)
+-- ══════════════════════════════════════════════════════════════
 local function FindBrainrotInSlot(slot)
-    -- Structure 1: Slot > PlacedPart > Model
     local pp = slot:FindFirstChild("PlacedPart")
     if pp then
         local m = pp:FindFirstChildOfClass("Model")
         if m then return m end
-        -- Maybe it's a MeshPart or Part directly
         for _, child in ipairs(pp:GetChildren()) do
             if child:IsA("Model") or child:IsA("MeshPart") then return child end
         end
     end
-    -- Structure 2: Slot > Model directly
     local m = slot:FindFirstChildOfClass("Model")
     if m then return m end
-    -- Structure 3: Any descendant model
-    for _, desc in ipairs(slot:GetChildren()) do
-        if desc:IsA("Model") and desc.Name ~= "PlacedPart" then return desc end
-    end
     return nil
-end
-
-local function DoAutoFav()
-    pcall(function()
-        local plot = GetPlot()
-        if not plot then return end
-        local slots = plot:FindFirstChild("Slots")
-        if not slots then return end
-        for _, slot in ipairs(slots:GetChildren()) do
-            local model = FindBrainrotInSlot(slot)
-            if model then
-                local name = model.Name
-                local mut = DetectMutation(model)
-                local fav = IsFavorited(slot, model)
-                local cps = CalcCPS(name, mut)
-                local sn = tonumber(string.match(slot.Name, "%d+"))
-                
-                -- Advanced CPS-based Logic
-                if cps >= S.MinFavCPS and not fav then
-                    if sn then DoFavorite(sn); task.wait(0.3) end
-                elseif cps < S.MinUnfavCPS and fav then
-                    if sn then DoFavorite(sn); task.wait(0.3) end -- Toggle off
-                end
-            end
-        end
-    end)
 end
 
 local function DoRemoveAll()
     pcall(function()
         local plot = GetPlot()
-        if not plot then return end
+        if not plot then print("[MoronHUB] Remove: Plot not found") return end
         local slots = plot:FindFirstChild("Slots")
-        if not slots then return end
+        if not slots then print("[MoronHUB] Remove: Slots not found") return end
+        
+        local interactRemote = R.Interact
+        if not interactRemote then
+            -- Try fresh lookup
+            pcall(function()
+                local nf = RS:FindFirstChild("Shared") and RS.Shared:FindFirstChild("Packages") and RS.Shared.Packages:FindFirstChild("Network")
+                if nf then interactRemote = nf:FindFirstChild("rev_S_Interact") end
+            end)
+        end
+        if not interactRemote then print("[MoronHUB] Remove: rev_S_Interact not found") return end
+        
+        local removed = 0
         for _, slot in ipairs(slots:GetChildren()) do
-            local model = FindBrainrotInSlot(slot)
-            if model then
+            local hasBrainrot = FindBrainrotInSlot(slot)
+            if hasBrainrot then
                 local sn = tonumber(string.match(slot.Name, "%d+"))
                 if sn then
-                    if R.Interact then
-                        R.Interact:FireServer("Remove", sn)
-                    end
-                    task.wait(0.15)
+                    -- Try multiple remove methods
+                    pcall(function() interactRemote:FireServer("Remove", sn) end)
+                    pcall(function() interactRemote:FireServer("RemoveBrainrot", sn) end)
+                    pcall(function() interactRemote:FireServer(sn) end)
+                    removed = removed + 1
+                    task.wait(0.3)
                 end
             end
         end
+        print("[MoronHUB] Remove: Attempted to remove " .. removed .. " brainrots")
     end)
 end
 
+-- ══════════════════════════════════════════════════════════════
+-- PLACE BEST (Global CPS Lv1) - Equip tool then fire Interact
+-- ══════════════════════════════════════════════════════════════
 local function DoPlaceBestGlobal()
     pcall(function()
-        -- 1. Get Inventory
-        local invRaw = LP:GetAttribute("Inventory") or ""
-        if invRaw == "" then return end
-        
-        -- 2. Parse Inventory into {name, mutation, globalCPS}
-        local items = {}
-        local parts = string.split(invRaw, ",")
-        for i = 1, #parts, 2 do
-            local name = parts[i] and string.gsub(parts[i], "^%s*(.-)%s*$", "%1")
-            local mut = parts[i+1] and string.gsub(parts[i+1], "^%s*(.-)%s*$", "%1") or "None"
-            if name and name ~= "" then
-                local lookup = CPSLookup[name]
-                local baseCPS = lookup and lookup.cps or 0
-                local mutMult = MutMult[mut] or 1
-                local globalCPS = baseCPS * mutMult
-                table.insert(items, {name = name, mutation = mut, globalCPS = globalCPS})
-            end
-        end
-        
-        -- 3. Sort by Global (Base) CPS
-        table.sort(items, function(a, b) return a.globalCPS > b.globalCPS end)
-        
-        -- 4. Get available slots
         local plot = GetPlot()
-        if not plot then return end
-        local maxSlots = LP:GetAttribute("MaxSlots") or 0
+        if not plot then print("[MoronHUB] PlaceBest: Plot not found") return end
+        local slots = plot:FindFirstChild("Slots")
+        if not slots then print("[MoronHUB] PlaceBest: Slots not found") return end
         
-        -- 5. Place one by one
-        DoRemoveAll()
-        task.wait(0.5)
+        local interactRemote = R.Interact
+        if not interactRemote then
+            pcall(function()
+                local nf = RS:FindFirstChild("Shared") and RS.Shared:FindFirstChild("Packages") and RS.Shared.Packages:FindFirstChild("Network")
+                if nf then interactRemote = nf:FindFirstChild("rev_S_Interact") end
+            end)
+        end
+        if not interactRemote then print("[MoronHUB] PlaceBest: rev_S_Interact not found") return end
         
-        for i = 1, math.min(#items, maxSlots) do
-            local item = items[i]
-            if R.Interact then
-                R.Interact:FireServer("Place", item.name, item.mutation)
-                task.wait(0.1)
+        -- 1. Get all tools from inventory and sort by Base CPS (Lv1)
+        local tools = GetAllTools()
+        local sortedTools = {}
+        for _, tool in ipairs(tools) do
+            local name = tool.Name
+            local mut = tool:GetAttribute("Mutation") or "None"
+            local lookup = CPSLookup[name]
+            local baseCPS = lookup and lookup.cps or 0
+            local mutMult = MutMult[mut] or 1
+            local globalCPS = baseCPS * mutMult -- CPS at Lv1 with mutation
+            table.insert(sortedTools, {tool = tool, cps = globalCPS, name = name})
+        end
+        table.sort(sortedTools, function(a, b) return a.cps > b.cps end)
+        
+        -- 2. Find empty slots
+        local emptySlots = {}
+        for _, slot in ipairs(slots:GetChildren()) do
+            local sn = tonumber(string.match(slot.Name, "%d+"))
+            if sn then
+                local hasBrainrot = FindBrainrotInSlot(slot)
+                if not hasBrainrot then
+                    table.insert(emptySlots, sn)
+                end
             end
         end
+        table.sort(emptySlots)
+        
+        -- 3. Place best tools into empty slots
+        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if not hum then print("[MoronHUB] PlaceBest: No humanoid") return end
+        
+        local placed = 0
+        for i, slotNum in ipairs(emptySlots) do
+            if i > #sortedTools then break end
+            local entry = sortedTools[i]
+            if entry.cps <= 0 then break end
+            
+            -- Equip the tool
+            pcall(function() hum:EquipTool(entry.tool) end)
+            task.wait(0.3)
+            
+            -- Fire interact to place in slot
+            pcall(function() interactRemote:FireServer(slotNum) end)
+            placed = placed + 1
+            task.wait(0.4)
+            
+            -- Unequip
+            pcall(function() hum:UnequipTools() end)
+            task.wait(0.2)
+        end
+        print("[MoronHUB] PlaceBest: Placed " .. placed .. " brainrots")
     end)
 end
 
@@ -2405,24 +2422,24 @@ Section(P_Farm, "SELL", 4)
 Toggle(P_Farm, "Auto Sell (Non-Fav)", "AutoSell", function(v) if v then task.spawn(LoopSell) end end, 5)
 
 -- ═══════════════ BASE TAB ═══════════════
-Section(P_Base, "AUTO FAVORITE", 1)
-InfoLabel(P_Base, "Otomatis favorite brainrot jika CPS >= nilai di bawah", 2)
-Toggle(P_Base, "Auto Favorite", "AutoFavorite", function(v) if v then task.spawn(LoopFav) end end, 3)
-NumInput(P_Base, "Min CPS untuk Favorite", "MinFavCPS", "1000", 4)
-
-Section(P_Base, "AUTO UNFAVORITE", 5)
-InfoLabel(P_Base, "Otomatis unfavorite brainrot jika CPS < nilai di bawah", 6)
-NumInput(P_Base, "Min CPS untuk Unfavorite", "MinUnfavCPS", "100", 7)
+Section(P_Base, "AUTO FAVORITE / UNFAVORITE", 1)
+InfoLabel(P_Base, "Scan semua brainrot di inventory (Backpack)", 2)
+InfoLabel(P_Base, "Brainrot CPS >= Min Fav = otomatis di-FAVORITE", 3)
+InfoLabel(P_Base, "Brainrot CPS < Min Unfav = otomatis di-UNFAVORITE", 4)
+Toggle(P_Base, "Auto Favorite & Unfavorite", "AutoFavorite", function(v) if v then task.spawn(LoopFav) end end, 5)
+NumInput(P_Base, "Min CPS Favorite (di atas = fav)", "MinFavCPS", "1000", 6)
+NumInput(P_Base, "Min CPS Unfavorite (di bawah = unfav)", "MinUnfavCPS", "100", 7)
 
 Section(P_Base, "REMOVE & PLACE", 8)
-InfoLabel(P_Base, "Hapus semua brainrot dari base satu per satu", 9)
-Button(P_Base, "Remove All Brainrot", function() DoRemoveAll() end, 10)
-InfoLabel(P_Base, "Pasang brainrot terbaik berdasarkan CPS Lv1 (database)", 11)
-Button(P_Base, "Place Best (CPS Lv1)", function() DoPlaceBestGlobal() end, 12)
-Toggle(P_Base, "Auto Place Best (Lv1 CPS)", "AutoPlaceBestGlobal", function(v) if v then task.spawn(LoopPlaceBestGlobal) end end, 13)
+InfoLabel(P_Base, "Remove All = cabut semua brainrot dari base 1 per 1", 9)
+Button(P_Base, "Remove All Brainrot dari Base", function() DoRemoveAll(); Notify("Moron HUB", "Removing all brainrots...", 3) end, 10)
+InfoLabel(P_Base, "Place Best = pasang brainrot terkuat (CPS Lv1 database)", 11)
+InfoLabel(P_Base, "Urutan: CPS tertinggi di slot pertama, dst.", 12)
+Button(P_Base, "Place Best Brainrot (CPS Lv1)", function() DoPlaceBestGlobal(); Notify("Moron HUB", "Placing best brainrots...", 3) end, 13)
+Toggle(P_Base, "Auto Place Best (Loop)", "AutoPlaceBestGlobal", function(v) if v then task.spawn(LoopPlaceBestGlobal) end end, 14)
 
-Section(P_Base, "PLOT", 14)
-Toggle(P_Base, "Auto Plot Upgrade", "AutoPlotUpgrade", function(v) if v then task.spawn(LoopPlotUpgrade) end end, 15)
+Section(P_Base, "PLOT UPGRADE", 15)
+Toggle(P_Base, "Auto Plot Upgrade", "AutoPlotUpgrade", function(v) if v then task.spawn(LoopPlotUpgrade) end end, 16)
 
 -- ═══════════════ UPGRADE TAB ═══════════════
 Section(P_Upgrade, "BRAINROT UPGRADE", 1)
