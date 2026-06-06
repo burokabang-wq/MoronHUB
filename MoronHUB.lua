@@ -188,16 +188,34 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         }
         local embedColor = rarColors[brRarity] or 5793266
         
-        -- Get Roblox avatar URL (CDN direct link)
+        -- Get Roblox avatar URL via HTTP API (works on Delta)
         local playerAvatar = ""
         pcall(function()
-            local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
-                LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420
-            )
-            if content and content ~= "" and isReady then
-                playerAvatar = content
+            local httpReqAvatar = request or http_request or (syn and syn.request) or (http and http.request)
+            if httpReqAvatar then
+                local response = httpReqAvatar({
+                    Url = "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=" .. tostring(LP.UserId) .. "&size=420x420&format=Png&isCircular=false",
+                    Method = "GET"
+                })
+                if response and response.Body then
+                    local imageUrl = string.match(response.Body, '"imageUrl":"([^"]+)"')
+                    if imageUrl and imageUrl ~= "" then
+                        playerAvatar = imageUrl
+                    end
+                end
             end
         end)
+        -- Fallback: try GetUserThumbnailAsync
+        if playerAvatar == "" then
+            pcall(function()
+                local content, isReady = game:GetService("Players"):GetUserThumbnailAsync(
+                    LP.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420
+                )
+                if content and content ~= "" and isReady then
+                    playerAvatar = content
+                end
+            end)
+        end
         
         -- Build embed
         local embed = {
