@@ -220,9 +220,6 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
         -- Get brainrot image URL for Discord
         local brainrotImage = ""
         pcall(function()
-            local httpReqImg = request or http_request or (syn and syn.request) or (http and http.request)
-            if not httpReqImg then return end
-            
             -- Get the image asset ID used by in-game notification (same source)
             local rawImageId = GetBrainrotImage(brName)
             print("[Moron HUB] GetBrainrotImage returned: " .. tostring(rawImageId))
@@ -274,16 +271,35 @@ SendWebhook = function(brName, brMutation, brCPS, brRarity, reason)
                 end
             end)
             
-            -- Convert to CDN URL via Thumbnails API
-            local resp = httpReqImg({
-                Url = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. imageAssetId .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false",
-                Method = "GET"
-            })
-            if resp and resp.Body then
-                local imgUrl = string.match(resp.Body, '"imageUrl":"([^"]+)"')
+            -- Method 1: Use game:HttpGet (proven to work on Delta - same as loadstring)
+            local thumbUrl = "https://thumbnails.roblox.com/v1/assets?assetIds=" .. imageAssetId .. "&returnPolicy=PlaceHolder&size=420x420&format=Png&isCircular=false"
+            local respBody = nil
+            pcall(function()
+                respBody = game:HttpGet(thumbUrl)
+            end)
+            
+            if respBody then
+                local imgUrl = string.match(respBody, '"imageUrl":"([^"]+)"')
                 if imgUrl and imgUrl ~= "" then
                     brainrotImage = imgUrl
-                    print("[Moron HUB] Got brainrot CDN image: " .. imgUrl)
+                    print("[Moron HUB] Got brainrot CDN image (HttpGet): " .. imgUrl)
+                    return
+                end
+            end
+            
+            -- Method 2: Fallback to request() if game:HttpGet fails
+            local httpReqImg = request or http_request or (syn and syn.request) or (http and http.request)
+            if httpReqImg then
+                local resp = httpReqImg({
+                    Url = thumbUrl,
+                    Method = "GET"
+                })
+                if resp and resp.Body then
+                    local imgUrl = string.match(resp.Body, '"imageUrl":"([^"]+)"')
+                    if imgUrl and imgUrl ~= "" then
+                        brainrotImage = imgUrl
+                        print("[Moron HUB] Got brainrot CDN image (request): " .. imgUrl)
+                    end
                 end
             end
         end)
