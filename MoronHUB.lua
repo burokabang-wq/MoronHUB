@@ -2404,15 +2404,23 @@ Toggle(P_Farm, "Auto Upgrade Brainrot", "AutoUpgrade", function(v) if v then tas
 Toggle(P_Farm, "Auto Buy Speed", "AutoBuySpeed", function(v) if v then task.spawn(LoopBuySpeed) end end, 6)
 Toggle(P_Farm, "Auto Base Upgrade", "AutoBaseUpgrade", function(v) if v then task.spawn(LoopBaseUpgrade) end end, 7)
 
-Section(P_Farm, "BRAINROT MANAGEMENT", 8)
-Toggle(P_Farm, "Auto Favorite (Advanced)", "AutoFavorite", function(v) if v then task.spawn(LoopFav) end end, 9)
-NumInput(P_Farm, "Min Favorite CPS", "MinFavCPS", "Enter min CPS to fav", 10)
-NumInput(P_Farm, "Min Unfavorite CPS", "MinUnfavCPS", "Enter min CPS to unfav", 11)
-Toggle(P_Farm, "Auto Sell (Non-Fav)", "AutoSell", function(v) if v then task.spawn(LoopSell) end end, 12)
-Toggle(P_Farm, "Auto Place Best (Local)", "AutoPlaceBest", function(v) if v then task.spawn(LoopPlaceBest) end end, 13)
-Toggle(P_Farm, "Auto Place Best (Global)", "AutoPlaceBestGlobal", function(v) if v then task.spawn(LoopPlaceBestGlobal) end end, 14)
-Button(P_Farm, "Remove All From Base", function() DoRemoveAll() end, 15)
-Toggle(P_Farm, "Auto Plot Upgrade", "AutoPlotUpgrade", function(v) if v then task.spawn(LoopPlotUpgrade) end end, 16)
+Section(P_Farm, "AUTO FAVORITE / UNFAVORITE", 8)
+InfoLabel(P_Farm, "Favorite brainrot jika CPS >= Min Fav CPS", 9)
+Toggle(P_Farm, "Auto Favorite", "AutoFavorite", function(v) if v then task.spawn(LoopFav) end end, 10)
+NumInput(P_Farm, "Min Fav CPS", "MinFavCPS", "1000", 11)
+InfoLabel(P_Farm, "Unfavorite brainrot jika CPS < Min Unfav CPS", 12)
+NumInput(P_Farm, "Min Unfav CPS", "MinUnfavCPS", "100", 13)
+
+Section(P_Farm, "BASE MANAGEMENT", 14)
+InfoLabel(P_Farm, "Remove All = hapus semua brainrot dari base", 15)
+Button(P_Farm, "Remove All Brainrot From Base", function() DoRemoveAll() end, 16)
+InfoLabel(P_Farm, "Place Best = pasang brainrot terbaik (CPS Lv1 dari database)", 17)
+Button(P_Farm, "Place Best Brainrot (Global CPS)", function() DoPlaceBestGlobal() end, 18)
+Toggle(P_Farm, "Auto Place Best (Lv1 CPS)", "AutoPlaceBestGlobal", function(v) if v then task.spawn(LoopPlaceBestGlobal) end end, 19)
+
+Section(P_Farm, "SELL & PLOT", 20)
+Toggle(P_Farm, "Auto Sell (Non-Fav)", "AutoSell", function(v) if v then task.spawn(LoopSell) end end, 21)
+Toggle(P_Farm, "Auto Plot Upgrade", "AutoPlotUpgrade", function(v) if v then task.spawn(LoopPlotUpgrade) end end, 22)
 
 -- ═══════════════ TRAIN TAB (WEIGHT LIFTING) ═══════════════
 Section(P_Train, "WEIGHT TRAINING", 1)
