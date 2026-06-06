@@ -1850,22 +1850,25 @@ end
 -- ══════════════════════════════════════════════════════════════
 -- AUTO POTION (Farm Potion - x2 Kick & Run Speed)
 -- ══════════════════════════════════════════════════════════════
+local _originalSpeed = nil -- Store original speed before boost
+
 local function DoAutoPotion()
     -- BYPASS: Apply Farm Potion effect (x2 kick & run speed) client-side
     -- No need to own the potion or wait for Admin event
-    -- This directly modifies WalkSpeed and block physics
+    -- Multiplies current player speed by 2
     pcall(function()
         local char = LP.Character
         if not char then return end
         local hum = char:FindFirstChildOfClass("Humanoid")
         if not hum then return end
         
-        -- 1) Boost WalkSpeed (Farm Potion = x2 run speed)
-        -- Default WalkSpeed in KALB is usually 16-25
-        -- We set it to double the current or a high value
-        local baseSpeed = hum:GetAttribute("BaseWalkSpeed") or hum:GetAttribute("DefaultSpeed") or 16
-        local boostedSpeed = math.max(baseSpeed * 2, 50)
-        hum.WalkSpeed = boostedSpeed
+        -- 1) Boost WalkSpeed x2 (multiply current speed)
+        -- Save original speed on first run so we don't keep doubling
+        if not _originalSpeed then
+            _originalSpeed = hum.WalkSpeed -- e.g. 140
+        end
+        -- Always set to original x2 (prevents infinite doubling)
+        hum.WalkSpeed = _originalSpeed * 2
     end)
     
     -- 2) Speed up block descent after kick (make block fall faster)
@@ -1917,21 +1920,6 @@ local function DoAutoPotion()
         end
     end)
     
-    -- 5) Modify leaderstats or player values if they control speed
-    pcall(function()
-        local ls = LP:FindFirstChild("leaderstats") or LP:FindFirstChild("PlayerData") or LP:FindFirstChild("Data")
-        if ls then
-            for _, v in ipairs(ls:GetDescendants()) do
-                if string.find(string.lower(v.Name), "speed") or string.find(string.lower(v.Name), "potion") then
-                    if v:IsA("NumberValue") or v:IsA("IntValue") then
-                        v.Value = v.Value * 2
-                    elseif v:IsA("BoolValue") then
-                        v.Value = true
-                    end
-                end
-            end
-        end
-    end)
 end
 
 local function LoopPotion()
@@ -1944,8 +1932,11 @@ local function LoopPotion()
         local char = LP.Character
         if char then
             local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then hum.WalkSpeed = 16 end
+            if hum and _originalSpeed then
+                hum.WalkSpeed = _originalSpeed
+            end
         end
+        _originalSpeed = nil -- Reset so next toggle recaptures speed
     end)
 end
 
@@ -2836,9 +2827,9 @@ Toggle(P_Upgrade, "Auto Buy Speed", "AutoBuySpeed", function(v) if v then task.s
 Toggle(P_Upgrade, "Auto Base Upgrade", "AutoBaseUpgrade", function(v) if v then task.spawn(LoopBaseUpgrade) end end, 6)
 
 Section(P_Upgrade, "SPEED BOOST (Bypass Potion)", 7)
-InfoLabel(P_Upgrade, "Bypass efek Farm Potion (x2 speed) tanpa beli", 8)
-InfoLabel(P_Upgrade, "WalkSpeed boost + block jatuh cepat + anim speed", 9)
-Toggle(P_Upgrade, "Speed Boost (Bypass Potion)", "AutoPotion", function(v) if v then task.spawn(LoopPotion) end end, 10)
+InfoLabel(P_Upgrade, "Speed saat ini x2 + block jatuh cepat + anim x2", 8)
+InfoLabel(P_Upgrade, "Tidak perlu potion/event, langsung bypass client", 9)
+Toggle(P_Upgrade, "Speed Boost x2 (Bypass)", "AutoPotion", function(v) if v then task.spawn(LoopPotion) end end, 10)
 
 -- ═══════════════ TRAIN TAB (WEIGHT LIFTING) ═══════════════
 Section(P_Train, "WEIGHT TRAINING", 1)
