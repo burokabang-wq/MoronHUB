@@ -1853,34 +1853,95 @@ end
 
 
 -- ══════════════════════════════════════════════════════════════
--- SPEED BOOST BYPASS (x2 Run Speed - No Potion Needed)
+-- SPEED BOOST BYPASS (x2 Run Speed - Modify SpeedData Module)
 -- ══════════════════════════════════════════════════════════════
+local _origSpeedData = {} -- Store original values to restore later
 
 local function LoopPotion()
-    -- Simple approach: just set WalkSpeed every 0.5s in a loop
-    -- No event listeners, no hooks, no physics - just a plain loop
-    print("[MoronHUB] Speed Boost ACTIVATED! Setting WalkSpeed to 200 every 0.5s")
-    while S.AutoPotion and S.Running do
+    -- BYPASS: Modify the SpeedData module to double the speed calculation
+    -- Game uses: speed = BASE_SPEED + (level * SPEED_INCREMENT)
+    -- By doubling SPEED_INCREMENT (1 -> 2), speed becomes BASE_SPEED + (level * 2)
+    -- Level 128: 13 + (128 * 2) = 269 (instead of 141)
+    
+    local success = pcall(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local SpeedData = require(RS.Shared.Data.SpeedData)
+        
+        -- Save originals
+        _origSpeedData.SPEED_INCREMENT = SpeedData.SPEED_INCREMENT
+        _origSpeedData.BASE_SPEED = SpeedData.BASE_SPEED
+        
+        -- Double the speed increment (1 -> 2)
+        SpeedData.SPEED_INCREMENT = SpeedData.SPEED_INCREMENT * 2
+        
+        -- Also clear cached speeds so game recalculates
+        if SpeedData.cachedSpeeds then
+            for k, _ in pairs(SpeedData.cachedSpeeds) do
+                SpeedData.cachedSpeeds[k] = nil
+            end
+        end
+        
+        print("[MoronHUB] Speed Boost: Modified SpeedData!")
+        print("[MoronHUB]   SPEED_INCREMENT: " .. _origSpeedData.SPEED_INCREMENT .. " -> " .. SpeedData.SPEED_INCREMENT)
+        print("[MoronHUB]   Expected speed: ~" .. (SpeedData.BASE_SPEED + 128 * SpeedData.SPEED_INCREMENT))
+    end)
+    
+    if not success then
+        print("[MoronHUB] Speed Boost: Failed to modify SpeedData, trying alternative...")
+        -- Alternative: try modifying KickSpeedUpgradeData too
         pcall(function()
-            local char = LP.Character
-            if char then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.WalkSpeed = 200
+            local RS = game:GetService("ReplicatedStorage")
+            local KickData = require(RS.Shared.Data.KickSpeedUpgradeData)
+            _origSpeedData.KICK_SPEED_INCREMENT = KickData.KICK_SPEED_INCREMENT
+            KickData.KICK_SPEED_INCREMENT = KickData.KICK_SPEED_INCREMENT * 2
+            if KickData.cachedSpeeds then
+                for k, _ in pairs(KickData.cachedSpeeds) do
+                    KickData.cachedSpeeds[k] = nil
                 end
             end
+            print("[MoronHUB] Speed Boost: Modified KickSpeedUpgradeData!")
         end)
-        task.wait(0.5)
     end
-    -- Reset when turned off
+    
+    print("[MoronHUB] Speed Boost ACTIVATED! Speed should now be ~2x")
+    
+    -- Keep alive while toggle is on
+    while S.AutoPotion and S.Running do
+        task.wait(2)
+    end
+    
+    -- Restore original values when turned off
     pcall(function()
-        local char = LP.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then hum.WalkSpeed = 22 end
+        local RS = game:GetService("ReplicatedStorage")
+        local SpeedData = require(RS.Shared.Data.SpeedData)
+        if _origSpeedData.SPEED_INCREMENT then
+            SpeedData.SPEED_INCREMENT = _origSpeedData.SPEED_INCREMENT
+        end
+        if _origSpeedData.BASE_SPEED then
+            SpeedData.BASE_SPEED = _origSpeedData.BASE_SPEED
+        end
+        -- Clear cache again so game recalculates with original values
+        if SpeedData.cachedSpeeds then
+            for k, _ in pairs(SpeedData.cachedSpeeds) do
+                SpeedData.cachedSpeeds[k] = nil
+            end
         end
     end)
-    print("[MoronHUB] Speed Boost DEACTIVATED")
+    pcall(function()
+        local RS = game:GetService("ReplicatedStorage")
+        local KickData = require(RS.Shared.Data.KickSpeedUpgradeData)
+        if _origSpeedData.KICK_SPEED_INCREMENT then
+            KickData.KICK_SPEED_INCREMENT = _origSpeedData.KICK_SPEED_INCREMENT
+        end
+        if KickData.cachedSpeeds then
+            for k, _ in pairs(KickData.cachedSpeeds) do
+                KickData.cachedSpeeds[k] = nil
+            end
+        end
+    end)
+    
+    _origSpeedData = {}
+    print("[MoronHUB] Speed Boost DEACTIVATED - Speed restored to normal")
 end
 
 -- ══════════════════════════════════════════════════════════════
