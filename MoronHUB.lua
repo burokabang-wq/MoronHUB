@@ -1773,7 +1773,48 @@ local function Loop2xBonus()
     StopBonus2xListener()
 end
 local function LoopBuyWeight() while S.AutoBuyWeight and S.Running do DoBuyWeight(); task.wait(5) end end
-local function LoopFav() while S.AutoFavorite and S.Running do DoAutoFav(); task.wait(5) end end
+-- Auto Fav listener for new brainrots entering inventory
+local _autoFavConn = nil
+local function StartAutoFavListener()
+    if _autoFavConn then pcall(function() _autoFavConn:Disconnect() end) end
+    _autoFavConn = LP.Backpack.ChildAdded:Connect(function(tool)
+        if not S.AutoFavorite or not S.Running then return end
+        if not tool:IsA("Tool") then return end
+        -- Wait briefly for attributes to be set by the server
+        task.wait(0.5)
+        pcall(function()
+            local guid = tool:GetAttribute("GUID")
+            if not guid then return end
+            local name = tool.Name
+            local mut = tool:GetAttribute("Mutation") or "None"
+            local isFav = tool:GetAttribute("Favorite") == true
+            local cps = CalcCPS(name, mut)
+            
+            -- Auto Favorite: CPS >= threshold and not yet favorited
+            if cps >= S.MinFavCPS and not isFav then
+                DoToggleFav(guid)
+                print("[MoronHUB] Auto-Fav NEW: " .. name .. " (CPS: " .. tostring(cps) .. ")")
+            -- Auto Unfavorite: CPS < threshold and currently favorited
+            elseif cps < S.MinUnfavCPS and isFav then
+                DoToggleFav(guid)
+                print("[MoronHUB] Auto-Unfav NEW: " .. name .. " (CPS: " .. tostring(cps) .. ")")
+            end
+        end)
+    end)
+end
+
+local function StopAutoFavListener()
+    if _autoFavConn then pcall(function() _autoFavConn:Disconnect() end); _autoFavConn = nil end
+end
+
+local function LoopFav()
+    StartAutoFavListener()
+    while S.AutoFavorite and S.Running do
+        DoAutoFav()
+        task.wait(5)
+    end
+    StopAutoFavListener()
+end
 local function LoopSell() while S.AutoSell and S.Running do DoSellAll(); task.wait(15) end end
 local function LoopPlaceBest() while S.AutoPlaceBest and S.Running do DoPlaceBest(); task.wait(3) end end
 local function LoopPlaceBestGlobal() while S.AutoPlaceBestGlobal and S.Running do DoPlaceBestGlobal(); task.wait(30) end end
