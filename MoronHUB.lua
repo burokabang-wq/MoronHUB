@@ -1816,6 +1816,18 @@ local function SmartFarmLoop()
             end
             
             -- STEP 4: Kick the block!
+            -- Ensure any previous speed boost is fully stopped
+            if _speedBoostActive then
+                _speedBoostActive = false
+                pcall(function()
+                    local c = LP.Character
+                    if c then
+                        local h = c:FindFirstChildOfClass("Humanoid")
+                        if h then h.WalkSpeed = 22 end
+                    end
+                end)
+            end
+            
             -- Save player position at kick zone BEFORE becoming brainrot
             local _playerKickPos = nil
             pcall(function()
