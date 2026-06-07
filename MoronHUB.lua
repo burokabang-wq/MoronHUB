@@ -1750,8 +1750,9 @@ local function SmartFarmLoop()
             end
             
             -- STEP 4: Kick the block!
-            -- Save player position at kick zone BEFORE becoming brainrot
+            -- Save player position and character BEFORE becoming brainrot
             local _playerKickPos = nil
+            local _preKickChar = LP.Character
             pcall(function()
                 local h = GetHRP()
                 if h then _playerKickPos = h.Position end
@@ -1761,50 +1762,52 @@ local function SmartFarmLoop()
             DoKick()
             task.wait(0.5)
             
-            -- STEP 5: Wait for kick animation to finish
-            -- After kick, camera flies to block. We must wait until:
-            -- 1. Camera returns to our character (CameraSubject == Humanoid)
-            -- 2. InGame attribute is set (brainrot assigned)
-            -- 3. Waves exist (wave is chasing)
-            -- This is EXACTLY how Luxy Hub does it (checks CameraSubject ~= Humanoid -> continue)
+            -- STEP 5: Wait for the ENTIRE kick animation to finish
+            -- The block flies through the air for up to 20+ seconds
+            -- We must wait until:
+            -- 1. InGame attribute is set (brainrot assigned)
+            -- 2. Character has CHANGED (we become the brainrot)
+            -- 3. New character position is FAR from kick zone (block has landed)
             S.Status = "Waiting for block to land..."
-            local WS = game:GetService("Workspace")
-            local cam = WS.CurrentCamera or WS:FindFirstChildOfClass("Camera")
-            local animTimeout = tick() + 15
+            local fullAnimTimeout = tick() + 30 -- Max 30s for entire animation
+            local blockLanded = false
             
-            -- Wait until camera returns to our humanoid (animation done, we are now the brainrot)
-            while S.SmartFarm and S.Running and tick() < animTimeout do
-                local hum = GetHum()
-                if hum and cam and cam.CameraSubject == hum then
-                    -- Camera is back on us, check if InGame is set
-                    local inGame = LP:GetAttribute("InGame") or ""
-                    if inGame ~= "" then
-                        break -- Animation done, brainrot assigned, we are the brainrot now
-                    end
-                end
-                task.wait(0.2)
-            end
-            
-            -- Wait for brainrot to actually land far from kick zone
-            -- The kick animation sends the block flying - brainrot spawns where block lands
-            -- We need to wait until brainrot position is FAR from kick zone (block has landed)
-            S.Status = "Waiting for block to land..."
-            local landTimeout = tick() + 25 -- Max 25s for block to land
-            while S.SmartFarm and S.Running and tick() < landTimeout do
-                local curHrp = nil
-                pcall(function()
-                    local c = LP.Character
-                    if c then curHrp = c:FindFirstChild("HumanoidRootPart") end
-                end)
-                if curHrp and _playerKickPos then
+            while S.SmartFarm and S.Running and tick() < fullAnimTimeout do
+                task.wait(0.3)
+                
+                -- Check if InGame is set (brainrot assigned to us)
+                local inGame = LP:GetAttribute("InGame") or ""
+                if inGame == "" then continue end
+                
+                -- InGame is set! Now check if our character position is far from kick zone
+                -- (this means the block has actually landed)
+                local curChar = LP.Character
+                if not curChar then continue end
+                
+                local curHrp = curChar:FindFirstChild("HumanoidRootPart")
+                if not curHrp then continue end
+                
+                if _playerKickPos then
                     local distFromKick = (curHrp.Position - _playerKickPos).Magnitude
+                    print("[MoronHUB] Block flying... dist from kick: " .. math.floor(distFromKick))
                     if distFromKick > 30 then
-                        -- Brainrot has landed far enough from kick zone
-                        print("[MoronHUB] Block landed! dist from kick zone: " .. math.floor(distFromKick))
+                        -- Block has landed far from kick zone!
+                        print("[MoronHUB] Block LANDED! dist=" .. math.floor(distFromKick))
+                        blockLanded = true
+                        break
+                    end
+                else
+                    -- No kick pos reference, just wait for character change
+                    if curChar ~= _preKickChar then
+                        task.wait(3) -- Extra wait without position reference
+                        blockLanded = true
                         break
                     end
                 end
-                task.wait(0.3)
+            end
+            
+            if not blockLanded then
+                print("[MoronHUB] Block land timeout - continuing anyway")
             end
             
             task.wait(0.5) -- Extra settle time after landing
