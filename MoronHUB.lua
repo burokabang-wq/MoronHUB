@@ -2107,7 +2107,7 @@ local Color = {
 
 -- Remove old UI
 pcall(function() for _, g in ipairs(game:GetService("CoreGui"):GetChildren()) do if g.Name == "MoronHUB" then g:Destroy() end end end)
-pcall(function() for _, g in ipairs(LP:WaitForChild("PlayerGui"):GetChildren()) do if g.Name == "MoronHUB" then g:Destroy() end end end)
+pcall(function() local pg = LP:FindFirstChild("PlayerGui"); if pg then for _, g in ipairs(pg:GetChildren()) do if g.Name == "MoronHUB" then g:Destroy() end end end end)
 
 local SG = Instance.new("ScreenGui")
 SG.Name = "MoronHUB"; SG.ResetOnSpawn = false
@@ -2117,7 +2117,7 @@ local parented = false
 pcall(function() if syn and syn.protect_gui then syn.protect_gui(SG) end; SG.Parent = game:GetService("CoreGui"); parented = true end)
 if not parented then pcall(function() SG.Parent = game:GetService("CoreGui"); parented = true end) end
 if not parented then pcall(function() if gethui then SG.Parent = gethui(); parented = true end end) end
-if not parented then pcall(function() SG.Parent = LP:WaitForChild("PlayerGui"); parented = true end) end
+if not parented then pcall(function() local pg = LP:FindFirstChild("PlayerGui") or LP:WaitForChild("PlayerGui", 3); if pg then SG.Parent = pg; parented = true end end) end
 if not parented then warn("[MoronHUB] UI failed"); genv.MoronHUB_Active = false; return end
 
 -- ══════════════════════════════════════════════════════════════
@@ -2431,13 +2431,14 @@ AvatarImg.Size = UDim2.new(1, -4, 1, -4)
 AvatarImg.Position = UDim2.new(0, 2, 0, 2)
 AvatarImg.BackgroundTransparency = 1
 AvatarImg.ScaleType = Enum.ScaleType.Fit
-pcall(function()
-    local thumbUrl = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. LP.UserId .. "&width=150&height=150&format=png"
-    -- Use Players:GetUserThumbnailAsync for reliable avatar
-    local thumbType = Enum.ThumbnailType.HeadShot
-    local thumbSize = Enum.ThumbnailSize.Size150x150
-    local content, isReady = Players:GetUserThumbnailAsync(LP.UserId, thumbType, thumbSize)
-    AvatarImg.Image = content
+-- Load avatar in background (non-blocking so UI appears instantly)
+task.defer(function()
+    pcall(function()
+        local thumbType = Enum.ThumbnailType.HeadShot
+        local thumbSize = Enum.ThumbnailSize.Size150x150
+        local content, isReady = Players:GetUserThumbnailAsync(LP.UserId, thumbType, thumbSize)
+        AvatarImg.Image = content
+    end)
 end)
 local avatarCorner = Instance.new("UICorner", AvatarImg)
 avatarCorner.CornerRadius = UDim.new(1, 0)
@@ -3267,12 +3268,14 @@ Instance.new("UICorner", MiniAvatar).CornerRadius = UDim.new(1, 0)
 local miniStroke = Instance.new("UIStroke", MiniAvatar)
 miniStroke.Color = Color.Primary; miniStroke.Thickness = 2.5
 
--- Set avatar image on mini button
-pcall(function()
-    local thumbType = Enum.ThumbnailType.HeadShot
-    local thumbSize = Enum.ThumbnailSize.Size150x150
-    local content, isReady = Players:GetUserThumbnailAsync(LP.UserId, thumbType, thumbSize)
-    MiniAvatar.Image = content
+-- Set avatar image on mini button (non-blocking)
+task.defer(function()
+    pcall(function()
+        local thumbType = Enum.ThumbnailType.HeadShot
+        local thumbSize = Enum.ThumbnailSize.Size150x150
+        local content, isReady = Players:GetUserThumbnailAsync(LP.UserId, thumbType, thumbSize)
+        MiniAvatar.Image = content
+    end)
 end)
 
 -- Online pulse ring effect
