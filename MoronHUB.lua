@@ -1993,8 +1993,10 @@ local function SmartFarmLoop()
                         -- Track if brainrot was ever far from kick zone
                         if dist > 30 then wasEverFar = true end
                         
-                        -- Deactivate speed when close to kick zone (< 100 studs)
-                        if dist < 100 and curHum.WalkSpeed > 16 then
+                        -- Speed management: keep 200 while far, reset to 16 when close
+                        if dist >= 100 then
+                            pcall(function() curHum.WalkSpeed = 200 end)
+                        elseif curHum.WalkSpeed > 16 then
                             pcall(function() curHum.WalkSpeed = 16 end)
                             print("[MoronHUB] Speed reset to 16 (dist < 100)")
                         end
