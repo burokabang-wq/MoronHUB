@@ -1954,10 +1954,9 @@ local function SmartFarmLoop()
                         end
                     end
                     
-                    -- Now brainrot is far from kick zone - activate speed and issue MoveTo
+                    -- Now brainrot is far from kick zone - activate full speed boost and issue MoveTo
                     print("[MoronHUB] Starting MoveTo! dist=" .. math.floor(initDist))
-                    pcall(function() hum.WalkSpeed = 200 end)
-                    print("[MoronHUB] Speed set to 200")
+                    pcall(ActivateSpeedBoost)
                     pcall(function() hum:MoveTo(targetPos) end)
                     
                     local moveTimeout = tick() + 300 -- 5 min max
@@ -1993,12 +1992,14 @@ local function SmartFarmLoop()
                         -- Track if brainrot was ever far from kick zone
                         if dist > 30 then wasEverFar = true end
                         
-                        -- Speed management: keep 200 while far, reset to 16 when close
+                        -- Speed management: keep speed while far, deactivate when close
                         if dist >= 100 then
+                            -- Re-enforce speed in case game resets it
                             pcall(function() curHum.WalkSpeed = 200 end)
-                        elseif curHum.WalkSpeed > 16 then
-                            pcall(function() curHum.WalkSpeed = 16 end)
-                            print("[MoronHUB] Speed reset to 16 (dist < 100)")
+                        elseif _speedBoostActive then
+                            -- Close to kick zone - deactivate speed boost
+                            pcall(DeactivateSpeedBoost)
+                            print("[MoronHUB] Speed deactivated (dist < 100)")
                         end
                         
                         -- Only allow arrival if brainrot was previously far (actually walked)
