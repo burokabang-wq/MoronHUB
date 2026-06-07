@@ -1763,54 +1763,50 @@ local function SmartFarmLoop()
             task.wait(0.5)
             
             -- STEP 5: Wait for the ENTIRE kick animation to finish
-            -- The block flies through the air for up to 20+ seconds
-            -- We must wait until:
-            -- 1. InGame attribute is set (brainrot assigned)
-            -- 2. Character has CHANGED (we become the brainrot)
-            -- 3. New character position is FAR from kick zone (block has landed)
+            -- After kick: block flies in air (camera follows block)
+            -- Block lands and transforms into brainrot
+            -- We detect landing by: Humanoid.FloorMaterial ~= Air (feet on ground)
+            -- AND InGame attribute is set
             S.Status = "Waiting for block to land..."
             local fullAnimTimeout = tick() + 30 -- Max 30s for entire animation
             local blockLanded = false
             
+            -- Phase 1: Wait for InGame to be set (brainrot assigned)
             while S.SmartFarm and S.Running and tick() < fullAnimTimeout do
-                task.wait(0.3)
-                
-                -- Check if InGame is set (brainrot assigned to us)
                 local inGame = LP:GetAttribute("InGame") or ""
-                if inGame == "" then continue end
-                
-                -- InGame is set! Now check if our character position is far from kick zone
-                -- (this means the block has actually landed)
+                if inGame ~= "" then
+                    print("[MoronHUB] InGame set: " .. inGame)
+                    break
+                end
+                task.wait(0.3)
+            end
+            
+            -- Phase 2: Wait for brainrot to touch the ground (block has landed)
+            -- FloorMaterial == Air means still flying/falling
+            S.Status = "Block in air, waiting to land..."
+            local groundTimeout = tick() + 25
+            while S.SmartFarm and S.Running and tick() < groundTimeout do
                 local curChar = LP.Character
-                if not curChar then continue end
-                
-                local curHrp = curChar:FindFirstChild("HumanoidRootPart")
-                if not curHrp then continue end
-                
-                if _playerKickPos then
-                    local distFromKick = (curHrp.Position - _playerKickPos).Magnitude
-                    print("[MoronHUB] Block flying... dist from kick: " .. math.floor(distFromKick))
-                    if distFromKick > 30 then
-                        -- Block has landed far from kick zone!
-                        print("[MoronHUB] Block LANDED! dist=" .. math.floor(distFromKick))
-                        blockLanded = true
-                        break
-                    end
-                else
-                    -- No kick pos reference, just wait for character change
-                    if curChar ~= _preKickChar then
-                        task.wait(3) -- Extra wait without position reference
-                        blockLanded = true
-                        break
+                if curChar then
+                    local curHum = curChar:FindFirstChildOfClass("Humanoid")
+                    if curHum then
+                        local floor = curHum.FloorMaterial
+                        if floor and floor ~= Enum.Material.Air then
+                            -- Brainrot has landed! Feet on ground
+                            print("[MoronHUB] Brainrot LANDED! FloorMaterial: " .. tostring(floor))
+                            blockLanded = true
+                            break
+                        end
                     end
                 end
+                task.wait(0.2)
             end
             
             if not blockLanded then
                 print("[MoronHUB] Block land timeout - continuing anyway")
             end
             
-            task.wait(0.5) -- Extra settle time after landing
+            task.wait(1) -- Extra settle time after landing
             
             -- STEP 6: Parse brainrot from InGame attribute
             S.Status = "Checking brainrot..."
