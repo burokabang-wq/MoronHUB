@@ -1993,13 +1993,13 @@ local function SmartFarmLoop()
                         if dist > 30 then wasEverFar = true end
                         
                         -- Speed management: keep speed while far, deactivate when close
-                        if dist >= 100 then
+                        if dist >= 150 then
                             -- Re-enforce speed in case game resets it
                             pcall(function() curHum.WalkSpeed = 200 end)
                         elseif _speedBoostActive then
                             -- Close to kick zone - deactivate speed boost
                             pcall(DeactivateSpeedBoost)
-                            print("[MoronHUB] Speed deactivated (dist < 100)")
+                            print("[MoronHUB] Speed deactivated (dist < 150)")
                         end
                         
                         -- Only allow arrival if brainrot was previously far (actually walked)
