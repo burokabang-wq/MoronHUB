@@ -1708,7 +1708,18 @@ local function SmartFarmLoop()
                 return
             end
             
-            -- STEP 2: Teleport to kick zone (CFrame - works in background)
+            -- STEP 2: Check if we're still a brainrot (InGame set) - if so, skip teleport
+            local inGameCheck = LP:GetAttribute("InGame") or ""
+            if inGameCheck ~= "" then
+                -- Still a brainrot! Don't teleport - wait until we die or get collected
+                S.Status = "Still brainrot, waiting..."
+                WaitUntilDead()
+                S.Status = "Died! Waiting respawn..."
+                WaitForRespawn()
+                return
+            end
+            
+            -- STEP 2b: Teleport to kick zone (CFrame - works in background)
             S.Status = "Going to kick zone..."
             local teleported = false
             for attempt = 1, 5 do
