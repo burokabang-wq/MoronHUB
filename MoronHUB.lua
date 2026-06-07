@@ -1849,36 +1849,84 @@ local function SmartFarmLoop()
                 pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
                 
                 -- NOW we are the brainrot - GOOD ROLL!
-                -- Speed feature DISABLED for testing. Brainrot walks naturally to kick zone.
-                -- When brainrot arrives and gets collected, character changes back to player.
+                -- Speed boost DISABLED. Using MoveTo with normal game speed only.
+                -- No CFrame, no teleport, no speed hack - just MoveTo direction.
                 
-                S.Status = "GOOD! Walking to kick zone (no speed)..."
+                S.Status = "GOOD! Running to kick zone..."
                 
-                -- Simply wait for brainrot to be collected or die
-                -- The brainrot will walk naturally to the kick zone
                 local startChar = LP.Character
-                local collectTimeout = tick() + 300 -- 5 min max
+                local hum = GetHum()
+                local hrp = GetHRP()
                 
-                while S.SmartFarm and S.Running and tick() < collectTimeout do
-                    task.wait(0.5)
-                    local curChar = LP.Character
-                    -- Character changed = brainrot was collected
-                    if curChar ~= startChar then
-                        print("[MoronHUB] Character changed - brainrot collected!")
-                        break
-                    end
-                    -- If we died (wave caught us)
-                    if curChar then
-                        local h = curChar:FindFirstChildOfClass("Humanoid")
-                        if h and h.Health <= 0 then
+                if hum and hrp and _playerKickPos then
+                    local targetPos = _playerKickPos + Vector3.new(0, 3, 0)
+                    print("[MoronHUB] MoveTo target (no speed): " .. tostring(targetPos))
+                    
+                    -- Issue initial MoveTo
+                    hum:MoveTo(targetPos)
+                    
+                    local moveTimeout = tick() + 300 -- 5 min max
+                    local lastPos = hrp.Position
+                    local stuckFrames = 0
+                    
+                    while S.SmartFarm and S.Running and tick() < moveTimeout do
+                        task.wait(0.5)
+                        
+                        local curChar = LP.Character
+                        if not curChar then break end
+                        
+                        -- Character changed = brainrot was collected
+                        if curChar ~= startChar then
+                            print("[MoronHUB] Character changed - brainrot collected!")
+                            break
+                        end
+                        
+                        local curHrp = curChar:FindFirstChild("HumanoidRootPart")
+                        local curHum = curChar:FindFirstChildOfClass("Humanoid")
+                        if not curHrp or not curHum then break end
+                        if curHum.Health <= 0 then
                             S.Status = "Wave caught us, respawning..."
                             WaitForRespawn()
                             break
                         end
-                    else
-                        WaitForRespawn()
-                        break
+                        
+                        -- Check distance
+                        local dist = (curHrp.Position - targetPos).Magnitude
+                        S.Status = "GOOD! Running... (" .. math.floor(dist) .. " studs)"
+                        
+                        if dist < 8 then
+                            print("[MoronHUB] Arrived at kick zone!")
+                            break
+                        end
+                        
+                        -- Detect stuck and re-issue MoveTo
+                        local moved = (curHrp.Position - lastPos).Magnitude
+                        lastPos = curHrp.Position
+                        
+                        if moved < 0.5 then
+                            stuckFrames = stuckFrames + 1
+                        else
+                            stuckFrames = 0
+                        end
+                        
+                        -- Re-issue MoveTo every iteration (game cancels after ~8s)
+                        pcall(function() curHum:MoveTo(targetPos) end)
+                        
+                        -- If stuck for too long, just wait to die
+                        if stuckFrames >= 20 then
+                            S.Status = "Stuck! Waiting for wave..."
+                            WaitUntilDead()
+                            S.Status = "Died! Waiting respawn..."
+                            WaitForRespawn()
+                            break
+                        end
                     end
+                else
+                    -- Refs failed, wait to die naturally
+                    print("[MoronHUB] MoveTo refs nil, waiting to die...")
+                    WaitUntilDead()
+                    S.Status = "Died! Waiting respawn..."
+                    WaitForRespawn()
                 end
                 
                 -- Return to restart loop from top (InGame check will handle state)
@@ -2516,8 +2564,16 @@ local function NumInput(parent, text, key, placeholder, order)
     
     box.FocusLost:Connect(function()
         local num = tonumber(box.Text)
-        if num then S[key] = math.floor(num); box.Text = tostring(math.floor(num))
-        else box.Text = tostring(S[key] or 0) end
+        if num then
+            num = math.floor(num)
+            -- Clamp KickPower to 1-100
+            if key == "KickPower" then num = math.clamp(num, 1, 100) end
+            S[key] = num
+            box.Text = tostring(num)
+        else
+            box.Text = tostring(S[key] or 0)
+        end
+        pcall(SaveConfig)
     end)
     
     return box
