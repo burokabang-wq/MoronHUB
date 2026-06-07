@@ -1502,7 +1502,7 @@ local function ActivateSpeedBoost()
     if _speedBoostActive then return end -- Already active
     _speedBoostActive = true
     
-    local targetSpeed = 200 -- Target WalkSpeed
+    local targetSpeed = 160 -- Target WalkSpeed
     
     -- Wait for character to be fully ready (retry up to 3 seconds - character should already exist)
     local char, hum, hrp
