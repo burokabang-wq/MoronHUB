@@ -2207,16 +2207,6 @@ if not parented then pcall(function() SG.Parent = LP:WaitForChild("PlayerGui"); 
 if not parented then warn("[MoronHUB] UI failed"); genv.MoronHUB_Active = false; return end
 
 -- ══════════════════════════════════════════════════════════════
--- RESPONSIVE UI SCALING
--- ══════════════════════════════════════════════════════════════
-local Camera = WS.CurrentCamera
-local viewportSize = Camera and Camera.ViewportSize or Vector2.new(1920, 1080)
--- Scale factor based on screen size
--- Reference: 1280x720 so UI appears larger on high-res screens
--- Clamp between 0.85 (minimum readable) and 2.0 (high DPI screens)
-local scaleFactor = math.clamp(math.min(viewportSize.X / 1280, viewportSize.Y / 720), 0.85, 2.0)
-
--- ══════════════════════════════════════════════════════════════
 -- ROLL NOTIFICATION SYSTEM (Bottom-Right Professional Toast)
 -- ══════════════════════════════════════════════════════════════
 local NotifContainer = Instance.new("Frame", SG)
@@ -2225,8 +2215,7 @@ NotifContainer.Size = UDim2.new(0, 320, 1, -20)
 NotifContainer.Position = UDim2.new(1, -330, 0, 10)
 NotifContainer.BackgroundTransparency = 1
 NotifContainer.ClipsDescendants = false
--- Notification sizes scaled by factor
-local notifScaleFactor = scaleFactor
+
 local notifLayout = Instance.new("UIListLayout", NotifContainer)
 notifLayout.Padding = UDim.new(0, 8)
 notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -2459,14 +2448,12 @@ ShowRollNotification = function(isGood, brName, mutation, cps, reason)
     end)
 end
 
--- Main Window (responsive to screen size - scaled pixel sizes, no UIScale)
-local winW = math.floor(380 * scaleFactor)
-local winH = math.floor(520 * scaleFactor)
+-- Main Window
 local Win = Instance.new("Frame", SG)
-Win.Name = "Win"; Win.Size = UDim2.new(0, winW, 0, winH)
-Win.Position = UDim2.new(0.5, -math.floor(winW/2), 0.5, -math.floor(winH/2))
+Win.Name = "Win"; Win.Size = UDim2.new(0, 380, 0, 520)
+Win.Position = UDim2.new(0.5, -190, 0.5, -260)
 Win.BackgroundColor3 = Color.Bg; Win.BorderSizePixel = 0
-Instance.new("UICorner", Win).CornerRadius = UDim.new(0, math.floor(12 * scaleFactor))
+Instance.new("UICorner", Win).CornerRadius = UDim.new(0, 12)
 Instance.new("UIStroke", Win).Color = Color.Border
 
 -- Shadow
