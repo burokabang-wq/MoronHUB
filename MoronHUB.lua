@@ -1630,14 +1630,50 @@ local function ActivateSpeedBoost()
     print("[MoronHUB] Speed Boost ACTIVATED! WalkSpeed = " .. targetSpeed)
     
     -- Internal loop to keep forcing speed while active
+    -- Also monitors distance to kick zone and auto-deactivates when close
     task.spawn(function()
+        local kickZonePos = nil
+        pcall(function()
+            local areas = game:GetService("Workspace"):FindFirstChild("Areas")
+            if areas then
+                local kr = areas:FindFirstChild("KickReady")
+                if kr then kickZonePos = kr.Position end
+            end
+        end)
+        
+        local maxDistSeen = 0 -- Track the farthest distance we've been from kick zone
+        
         while _speedBoostActive and S.Running do
             pcall(function()
                 local c = LP.Character
                 if c then
                     local h = c:FindFirstChildOfClass("Humanoid")
+                    local r = c:FindFirstChild("HumanoidRootPart")
                     if h and h.Health > 0 then
                         h.WalkSpeed = targetSpeed
+                        
+                        -- Auto-deactivate when approaching kick zone
+                        if r and kickZonePos then
+                            local dist = (r.Position - kickZonePos).Magnitude
+                            
+                            -- Track max distance (= how far the kick sent us)
+                            if dist > maxDistSeen then
+                                maxDistSeen = dist
+                            end
+                            
+                            -- Only start checking deactivation after we've been far away
+                            -- (maxDistSeen > 30 means we actually left the kick zone)
+                            if maxDistSeen > 30 then
+                                -- Deactivate at 95% of journey OR within 15 studs
+                                local percent = ((maxDistSeen - dist) / maxDistSeen) * 100
+                                if percent >= 95 or dist < 15 then
+                                    print("[MoronHUB] Speed auto-OFF: " .. math.floor(percent) .. "% (dist=" .. math.floor(dist) .. ", maxDist=" .. math.floor(maxDistSeen) .. ")")
+                                    _speedBoostActive = false -- Stop this loop
+                                    task.spawn(DeactivateSpeedBoost) -- Clean deactivation
+                                    return
+                                end
+                            end
+                        end
                     end
                 end
             end)
