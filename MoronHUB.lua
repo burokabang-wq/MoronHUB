@@ -1631,10 +1631,8 @@ local function ActivateSpeedBoost()
     print("[MoronHUB] Speed Boost ACTIVATED! WalkSpeed = " .. targetSpeed)
     
     -- Internal loop to keep forcing speed while active
-    -- Also monitors distance to player position and auto-deactivates when close
+    -- Auto-deactivates when within 50 studs of player (before entering kick zone)
     task.spawn(function()
-        local maxDistSeen = 0 -- Track the farthest distance from target
-        
         while _speedBoostActive and S.Running do
             pcall(function()
                 local c = LP.Character
@@ -1644,26 +1642,17 @@ local function ActivateSpeedBoost()
                     if h and h.Health > 0 then
                         h.WalkSpeed = targetSpeed
                         
-                        -- Auto-deactivate when approaching player/target position
+                        -- Auto-deactivate when close to player position (kick zone)
                         if r and _speedTargetPos then
                             local dist = (r.Position - _speedTargetPos).Magnitude
                             
-                            -- Track max distance (= how far the kick sent us)
-                            if dist > maxDistSeen then
-                                maxDistSeen = dist
-                            end
-                            
-                            -- Only start checking deactivation after we've been far away
-                            -- (maxDistSeen > 50 means we actually are at brainrot spawn)
-                            if maxDistSeen > 50 then
-                                -- Deactivate at 95% of journey OR within 20 studs of player
-                                local percent = ((maxDistSeen - dist) / maxDistSeen) * 100
-                                if percent >= 95 or dist < 20 then
-                                    print("[MoronHUB] Speed auto-OFF: " .. math.floor(percent) .. "% (dist=" .. math.floor(dist) .. ", maxDist=" .. math.floor(maxDistSeen) .. ")")
-                                    _speedBoostActive = false -- Stop this loop
-                                    task.spawn(DeactivateSpeedBoost) -- Clean deactivation
-                                    return
-                                end
+                            -- Deactivate when within 50 studs of player
+                            -- This ensures speed is OFF before entering kick zone
+                            if dist < 50 then
+                                print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist) .. " studs from player (< 50)")
+                                _speedBoostActive = false
+                                task.spawn(DeactivateSpeedBoost)
+                                return
                             end
                         end
                     end
