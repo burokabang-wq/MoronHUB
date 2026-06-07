@@ -1844,17 +1844,41 @@ local function SmartFarmLoop()
                 pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
                 
                 -- NOW we are the brainrot, positioned FAR from kick zone.
-                -- Activate speed boost IMMEDIATELY on good roll
+                -- Record spawn position BEFORE anything else (this = kick distance)
+                local kr = GetKickReady()
+                local hrp = GetHRP()
+                local hum = GetHum()
+                local char = LP.Character
+                
+                -- Record brainrot spawn position = where block landed
+                local spawnPos = hrp and hrp.Position or nil
+                local targetPos = kr and (kr.Position + Vector3.new(0, 3, 0)) or nil
+                local totalDistance = 0
+                if spawnPos and targetPos then
+                    totalDistance = (spawnPos - targetPos).Magnitude
+                end
+                print("[MoronHUB] Kick distance detected: " .. math.floor(totalDistance) .. " studs")
+                
+                -- Activate speed boost
                 pcall(ActivateSpeedBoost)
                 S.Status = "Speed boost ON, running to kick zone..."
                 
-                local kr = GetKickReady()
-                local hum = GetHum()
-                local hrp = GetHRP()
-                local char = LP.Character
+                -- Re-get references after speed activation (may have waited)
+                kr = GetKickReady()
+                hum = GetHum()
+                hrp = GetHRP()
+                char = LP.Character
                 
                 if kr and hum and hrp and char then
-                    local targetPos = kr.Position + Vector3.new(0, 3, 0)
+                    if not targetPos then
+                        targetPos = kr.Position + Vector3.new(0, 3, 0)
+                    end
+                    
+                    -- If totalDistance wasn't recorded, measure now
+                    if totalDistance < 20 then
+                        totalDistance = (hrp.Position - targetPos).Magnitude
+                        print("[MoronHUB] Re-measured distance: " .. math.floor(totalDistance) .. " studs")
+                    end
                     
                     -- MoveTo works but game cancels it after ~18 seconds.
                     -- Manual keyboard input NEVER gets cancelled.
@@ -1872,12 +1896,6 @@ local function SmartFarmLoop()
                     
                     -- Start with MoveTo
                     hum:MoveTo(targetPos)
-                    
-                    -- Record start position NOW (after MoveTo issued, character confirmed)
-                    local startPos = hrp.Position
-                    local totalDistance = (startPos - targetPos).Magnitude
-                    local distanceRecorded = (totalDistance > 20) -- Only trust if > 20 studs
-                    print("[MoronHUB] Speed: totalDistance = " .. math.floor(totalDistance) .. " studs")
                     
                     -- Track position to detect stuck
                     local lastPos = hrp.Position
@@ -1897,29 +1915,19 @@ local function SmartFarmLoop()
                         if not curHrp or not curHum then pcall(DeactivateSpeedBoost); break end
                         if curHum.Health <= 0 then pcall(DeactivateSpeedBoost); break end
                         
-                        -- Check distance to target
+                        -- Check distance to kick zone
                         local dist = (curHrp.Position - targetPos).Magnitude
                         
-                        -- Update totalDistance on first loop if it wasn't recorded properly
-                        if not distanceRecorded then
-                            local newTotal = (curHrp.Position - targetPos).Magnitude
-                            if newTotal > 20 then
-                                totalDistance = newTotal
-                                startPos = curHrp.Position
-                                distanceRecorded = true
-                                print("[MoronHUB] Speed: Updated totalDistance = " .. math.floor(totalDistance) .. " studs")
-                            end
-                        end
-                        
-                        -- Calculate percentage traveled
+                        -- Calculate percentage of journey completed
                         local percent = 0
-                        if distanceRecorded and totalDistance > 0 then
+                        if totalDistance > 20 then
                             local traveled = totalDistance - dist
                             percent = (traveled / totalDistance) * 100
+                            if percent < 0 then percent = 0 end
                         end
                         
                         -- Deactivate speed after 95% of journey completed
-                        -- OR if distance < 15 studs (absolute safety fallback)
+                        -- OR if distance < 15 studs from kick zone (absolute fallback)
                         if _speedBoostActive and (percent >= 95 or dist < 15) then
                             pcall(DeactivateSpeedBoost)
                             S.Status = "Speed off, entering kick zone..."
