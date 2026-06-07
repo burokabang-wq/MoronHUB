@@ -1897,12 +1897,41 @@ local function SmartFarmLoop()
                     local targetPos = _playerKickPos + Vector3.new(0, 3, 0)
                     print("[MoronHUB] MoveTo target (no speed): " .. tostring(targetPos))
                     
-                    -- Issue initial MoveTo
-                    hum:MoveTo(targetPos)
+                    -- Check initial distance - brainrot should be FAR from kick zone
+                    local initDist = (hrp.Position - targetPos).Magnitude
+                    print("[MoronHUB] Initial dist from kick zone: " .. math.floor(initDist))
+                    
+                    -- If brainrot is still near kick zone, it hasn't moved yet
+                    -- Wait until it's actually far away (block has truly landed far)
+                    if initDist < 30 then
+                        print("[MoronHUB] Brainrot still near kick zone, waiting for real position...")
+                        local posWait = tick() + 20
+                        while tick() < posWait and S.SmartFarm and S.Running do
+                            task.wait(0.5)
+                            local c = LP.Character
+                            if c then
+                                local h = c:FindFirstChild("HumanoidRootPart")
+                                if h then
+                                    initDist = (h.Position - targetPos).Magnitude
+                                    print("[MoronHUB] Waiting... dist: " .. math.floor(initDist))
+                                    if initDist > 30 then
+                                        hrp = h
+                                        hum = c:FindFirstChildOfClass("Humanoid")
+                                        break
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- Now brainrot is far from kick zone - issue MoveTo
+                    print("[MoronHUB] Starting MoveTo! dist=" .. math.floor(initDist))
+                    pcall(function() hum:MoveTo(targetPos) end)
                     
                     local moveTimeout = tick() + 300 -- 5 min max
                     local lastPos = hrp.Position
                     local stuckFrames = 0
+                    local wasEverFar = (initDist > 30) -- Must have been far before allowing arrival
                     
                     while S.SmartFarm and S.Running and tick() < moveTimeout do
                         task.wait(0.5)
@@ -1929,7 +1958,11 @@ local function SmartFarmLoop()
                         local dist = (curHrp.Position - targetPos).Magnitude
                         S.Status = "GOOD! Running... (" .. math.floor(dist) .. " studs)"
                         
-                        if dist < 8 then
+                        -- Track if brainrot was ever far from kick zone
+                        if dist > 30 then wasEverFar = true end
+                        
+                        -- Only allow arrival if brainrot was previously far (actually walked)
+                        if wasEverFar and dist < 8 then
                             print("[MoronHUB] Arrived at kick zone!")
                             break
                         end
