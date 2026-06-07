@@ -2199,9 +2199,10 @@ if not parented then warn("[MoronHUB] UI failed"); genv.MoronHUB_Active = false;
 -- ══════════════════════════════════════════════════════════════
 local Camera = WS.CurrentCamera
 local viewportSize = Camera and Camera.ViewportSize or Vector2.new(1920, 1080)
--- Scale factor based on screen size (reference: 1920x1080)
--- Clamp between 0.6 (small screens) and 1.2 (large screens)
-local scaleFactor = math.clamp(math.min(viewportSize.X / 1920, viewportSize.Y / 1080), 0.6, 1.2)
+-- Scale factor based on screen size
+-- Reference: 1280x720 so UI appears larger on high-res screens
+-- Clamp between 0.85 (minimum readable) and 1.5 (large screens)
+local scaleFactor = math.clamp(math.min(viewportSize.X / 1280, viewportSize.Y / 720), 0.85, 1.5)
 
 -- ══════════════════════════════════════════════════════════════
 -- ROLL NOTIFICATION SYSTEM (Bottom-Right Professional Toast)
