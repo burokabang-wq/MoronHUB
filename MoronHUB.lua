@@ -2213,8 +2213,8 @@ NotifContainer.Size = UDim2.new(0, 320, 1, -20)
 NotifContainer.Position = UDim2.new(1, -330, 0, 10)
 NotifContainer.BackgroundTransparency = 1
 NotifContainer.ClipsDescendants = false
-local notifScale = Instance.new("UIScale", NotifContainer)
-notifScale.Scale = scaleFactor
+-- Notification sizes scaled by factor
+local notifScaleFactor = scaleFactor
 local notifLayout = Instance.new("UIListLayout", NotifContainer)
 notifLayout.Padding = UDim.new(0, 8)
 notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -2447,18 +2447,15 @@ ShowRollNotification = function(isGood, brName, mutation, cps, reason)
     end)
 end
 
--- Main Window (responsive to screen size)
--- UIScale handles all proportional scaling - Win uses base size
+-- Main Window (responsive to screen size - scaled pixel sizes, no UIScale)
+local winW = math.floor(380 * scaleFactor)
+local winH = math.floor(520 * scaleFactor)
 local Win = Instance.new("Frame", SG)
-Win.Name = "Win"; Win.Size = UDim2.new(0, 380, 0, 520)
-Win.Position = UDim2.new(0.5, -190, 0.5, -260)
+Win.Name = "Win"; Win.Size = UDim2.new(0, winW, 0, winH)
+Win.Position = UDim2.new(0.5, -math.floor(winW/2), 0.5, -math.floor(winH/2))
 Win.BackgroundColor3 = Color.Bg; Win.BorderSizePixel = 0
-Instance.new("UICorner", Win).CornerRadius = UDim.new(0, 12)
+Instance.new("UICorner", Win).CornerRadius = UDim.new(0, math.floor(12 * scaleFactor))
 Instance.new("UIStroke", Win).Color = Color.Border
-
--- UIScale scales the entire window and all children proportionally
-local uiScale = Instance.new("UIScale", Win)
-uiScale.Scale = scaleFactor
 
 -- Shadow
 local Shadow = Instance.new("ImageLabel", Win)
