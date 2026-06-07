@@ -2201,8 +2201,8 @@ local Camera = WS.CurrentCamera
 local viewportSize = Camera and Camera.ViewportSize or Vector2.new(1920, 1080)
 -- Scale factor based on screen size
 -- Reference: 1280x720 so UI appears larger on high-res screens
--- Clamp between 0.85 (minimum readable) and 1.5 (large screens)
-local scaleFactor = math.clamp(math.min(viewportSize.X / 1280, viewportSize.Y / 720), 0.85, 1.5)
+-- Clamp between 0.85 (minimum readable) and 2.0 (high DPI screens)
+local scaleFactor = math.clamp(math.min(viewportSize.X / 1280, viewportSize.Y / 720), 0.85, 2.0)
 
 -- ══════════════════════════════════════════════════════════════
 -- ROLL NOTIFICATION SYSTEM (Bottom-Right Professional Toast)
