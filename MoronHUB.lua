@@ -1626,92 +1626,15 @@ local function ActivateSpeedBoost()
         end
     end)
     
-    -- ═══ TECHNIQUE 5: Force WalkSpeed + maintain loop ═══
+    -- ═══ TECHNIQUE 5: Set WalkSpeed once (NO force loop) ═══
     hum.WalkSpeed = targetSpeed
     print("[MoronHUB] Speed Boost ACTIVATED! WalkSpeed = " .. targetSpeed)
-    
-    -- Internal loop to keep forcing speed while active
-    -- Records brainrot spawn position, then deactivates at 95% of journey
-    task.spawn(function()
-        local spawnRecorded = false
-        local totalDistance = 0
-        local deactivateDistance = 0 -- Distance at which to deactivate (5% of total)
-        
-        while _speedBoostActive and S.Running do
-            pcall(function()
-                local c = LP.Character
-                if c then
-                    local h = c:FindFirstChildOfClass("Humanoid")
-                    local r = c:FindFirstChild("HumanoidRootPart")
-                    if h and h.Health > 0 then
-                        h.WalkSpeed = targetSpeed
-                        
-                        if r and _speedTargetPos then
-                            local dist = (r.Position - _speedTargetPos).Magnitude
-                            
-                            -- Step 1: Record spawn position once brainrot is far from player
-                            if not spawnRecorded then
-                                if dist > 100 then
-                                    -- This is the brainrot spawn position (where block landed)
-                                    totalDistance = dist
-                                    -- Deactivate when within 100 studs of player (fixed distance)
-                                    -- Close enough to kick zone but still safe
-                                    deactivateDistance = 100
-                                    spawnRecorded = true
-                                    print("[MoronHUB] Speed: Total distance = " .. math.floor(totalDistance) .. " studs, will deactivate at dist < " .. deactivateDistance)
-                                end
-                                return -- Don't check deactivation yet
-                            end
-                            
-                            -- Step 2: Deactivate when within 200 studs of player
-                            if dist < deactivateDistance then
-                                print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist) .. " (threshold=" .. math.floor(deactivateDistance) .. ")")
-                                -- Force cleanup directly (inline to avoid early-return bug)
-                                _speedBoostActive = false
-                                pcall(function()
-                                    if _origSpeedData._oldIndex and getrawmetatable and setreadonly then
-                                        local mt = getrawmetatable(game)
-                                        setreadonly(mt, false)
-                                        mt.__index = _origSpeedData._oldIndex
-                                    end
-                                end)
-                                pcall(function()
-                                    local RS = game:GetService("ReplicatedStorage")
-                                    local SpeedData = require(RS.Shared.Data.SpeedData)
-                                    if _origSpeedData.SPEED_INCREMENT then SpeedData.SPEED_INCREMENT = _origSpeedData.SPEED_INCREMENT end
-                                    if _origSpeedData.BASE_SPEED then SpeedData.BASE_SPEED = _origSpeedData.BASE_SPEED end
-                                    if _origSpeedData.GetSpeedFromLevel then SpeedData.GetSpeedFromLevel = _origSpeedData.GetSpeedFromLevel end
-                                    if SpeedData.cachedSpeeds then
-                                        for k, _ in pairs(SpeedData.cachedSpeeds) do SpeedData.cachedSpeeds[k] = nil end
-                                    end
-                                end)
-                                pcall(function()
-                                    for _, s in pairs(_disabledScripts) do pcall(function() s.Disabled = false end) end
-                                    _disabledScripts = {}
-                                end)
-                                pcall(function()
-                                    local c2 = LP.Character
-                                    if c2 then
-                                        local h2 = c2:FindFirstChildOfClass("Humanoid")
-                                        if h2 then h2.WalkSpeed = 22 end
-                                    end
-                                end)
-                                _origSpeedData = {}
-                                print("[MoronHUB] Speed Boost DEACTIVATED - WalkSpeed = 22")
-                                return
-                            end
-                        end
-                    end
-                end
-            end)
-            task.wait(0.05) -- Check every 0.05s for accuracy at high speed
-        end
-    end)
+    -- Deactivation is handled by the movement loop (dist < 100 check)
 end
 
 local function DeactivateSpeedBoost()
     -- Always run cleanup regardless of _speedBoostActive state
-    -- (force speed loop may have already set it to false)
+    -- (movement loop handles deactivation at dist < 100)
     _speedBoostActive = false
     
     print("[MoronHUB] Speed Boost: DEACTIVATING...")
@@ -1984,8 +1907,11 @@ local function SmartFarmLoop()
                         -- Check distance to player position (target)
                         local dist = (curHrp.Position - targetPos).Magnitude
                         
-                        -- Speed deactivation is handled by the force speed loop
-                        -- (monitors _speedTargetPos and auto-deactivates at 95%)
+                        -- Speed deactivation: turn off speed when within 100 studs of kick zone
+                        if _speedBoostActive and dist < 100 then
+                            print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist) .. " < 100 studs")
+                            pcall(DeactivateSpeedBoost)
+                        end
                         
                         if dist < 8 then
                             -- Arrived at player position
