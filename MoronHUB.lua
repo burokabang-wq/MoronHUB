@@ -1843,42 +1843,27 @@ local function SmartFarmLoop()
                 -- Add to good roll history (last 3)
                 pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
                 
-                -- NOW we are the brainrot, positioned FAR from kick zone.
-                -- Record spawn position BEFORE anything else (this = kick distance)
-                local kr = GetKickReady()
-                local hrp = GetHRP()
-                local hum = GetHum()
-                local char = LP.Character
-                
-                -- Record brainrot spawn position = where block landed
-                local spawnPos = hrp and hrp.Position or nil
-                local targetPos = kr and (kr.Position + Vector3.new(0, 3, 0)) or nil
-                local totalDistance = 0
-                if spawnPos and targetPos then
-                    totalDistance = (spawnPos - targetPos).Magnitude
-                end
-                print("[MoronHUB] Kick distance detected: " .. math.floor(totalDistance) .. " studs")
+                -- NOW we are the brainrot.
+                -- NOTE: Character may still be at kick zone position at this point!
+                -- The actual brainrot position will be detected once character moves far.
                 
                 -- Activate speed boost
                 pcall(ActivateSpeedBoost)
                 S.Status = "Speed boost ON, running to kick zone..."
                 
-                -- Re-get references after speed activation (may have waited)
-                kr = GetKickReady()
-                hum = GetHum()
-                hrp = GetHRP()
-                char = LP.Character
+                -- Get references after speed activation
+                local kr = GetKickReady()
+                local hum = GetHum()
+                local hrp = GetHRP()
+                local char = LP.Character
                 
                 if kr and hum and hrp and char then
-                    if not targetPos then
-                        targetPos = kr.Position + Vector3.new(0, 3, 0)
-                    end
+                    local targetPos = kr.Position + Vector3.new(0, 3, 0)
                     
-                    -- If totalDistance wasn't recorded, measure now
-                    if totalDistance < 20 then
-                        totalDistance = (hrp.Position - targetPos).Magnitude
-                        print("[MoronHUB] Re-measured distance: " .. math.floor(totalDistance) .. " studs")
-                    end
+                    -- totalDistance will be recorded INSIDE the loop once character
+                    -- is confirmed far from kick zone (meaning brainrot position is real)
+                    local totalDistance = 0
+                    local distanceRecorded = false
                     
                     -- MoveTo works but game cancels it after ~18 seconds.
                     -- Manual keyboard input NEVER gets cancelled.
@@ -1918,9 +1903,17 @@ local function SmartFarmLoop()
                         -- Check distance to kick zone
                         local dist = (curHrp.Position - targetPos).Magnitude
                         
+                        -- Record totalDistance once character is FAR from kick zone
+                        -- This means character has actually spawned at brainrot position
+                        if not distanceRecorded and dist > 30 then
+                            totalDistance = dist
+                            distanceRecorded = true
+                            print("[MoronHUB] Kick distance recorded: " .. math.floor(totalDistance) .. " studs (character at brainrot pos)")
+                        end
+                        
                         -- Calculate percentage of journey completed
                         local percent = 0
-                        if totalDistance > 20 then
+                        if distanceRecorded and totalDistance > 0 then
                             local traveled = totalDistance - dist
                             percent = (traveled / totalDistance) * 100
                             if percent < 0 then percent = 0 end
@@ -1928,10 +1921,18 @@ local function SmartFarmLoop()
                         
                         -- Deactivate speed after 95% of journey completed
                         -- OR if distance < 15 studs from kick zone (absolute fallback)
-                        if _speedBoostActive and (percent >= 95 or dist < 15) then
+                        -- Only deactivate if distance was recorded (we know the real distance)
+                        if _speedBoostActive and distanceRecorded and (percent >= 95 or dist < 15) then
                             pcall(DeactivateSpeedBoost)
                             S.Status = "Speed off, entering kick zone..."
                             print("[MoronHUB] Speed OFF at " .. math.floor(percent) .. "% (dist=" .. math.floor(dist) .. ")")
+                        end
+                        
+                        -- Fallback: if distance never recorded but we're very close, still deactivate
+                        if _speedBoostActive and not distanceRecorded and dist < 15 then
+                            pcall(DeactivateSpeedBoost)
+                            S.Status = "Speed off (fallback), entering kick zone..."
+                            print("[MoronHUB] Speed OFF fallback (dist=" .. math.floor(dist) .. ")")
                         end
                         
                         if dist < 8 then
