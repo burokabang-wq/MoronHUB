@@ -1502,16 +1502,24 @@ local function ActivateSpeedBoost()
     _speedBoostActive = true
     
     local targetSpeed = 200 -- Target WalkSpeed
-    local char = LP.Character
-    if not char then
-        print("[MoronHUB] Speed Boost: No character found")
-        _speedBoostActive = false
-        return
+    
+    -- Wait for character to be fully ready (retry up to 5 seconds)
+    local char, hum, hrp
+    local waitStart = tick()
+    while tick() - waitStart < 5 do
+        char = LP.Character
+        if char then
+            hum = char:FindFirstChildOfClass("Humanoid")
+            hrp = char:FindFirstChild("HumanoidRootPart")
+            if hum and hrp and hum.Health > 0 then
+                break
+            end
+        end
+        task.wait(0.2)
     end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hum or not hrp then
-        print("[MoronHUB] Speed Boost: No humanoid/HRP found")
+    
+    if not char or not hum or not hrp then
+        print("[MoronHUB] Speed Boost: Character not ready after 5s, aborting")
         _speedBoostActive = false
         return
     end
