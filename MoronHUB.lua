@@ -1854,9 +1854,23 @@ local function SmartFarmLoop()
                 
                 S.Status = "GOOD! Running to kick zone..."
                 
+                -- Wait for brainrot character to be fully ready
                 local startChar = LP.Character
-                local hum = GetHum()
-                local hrp = GetHRP()
+                local hum, hrp
+                local charWait = tick() + 5
+                while tick() < charWait do
+                    startChar = LP.Character
+                    if startChar then
+                        hum = startChar:FindFirstChildOfClass("Humanoid")
+                        hrp = startChar:FindFirstChild("HumanoidRootPart")
+                        if hum and hrp and hum.Health > 0 then
+                            break
+                        end
+                    end
+                    task.wait(0.1)
+                end
+                
+                print("[MoronHUB] Good Roll refs: hum=" .. tostring(hum ~= nil) .. " hrp=" .. tostring(hrp ~= nil) .. " kickPos=" .. tostring(_playerKickPos ~= nil))
                 
                 if hum and hrp and _playerKickPos then
                     local targetPos = _playerKickPos + Vector3.new(0, 3, 0)
