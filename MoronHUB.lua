@@ -1760,7 +1760,7 @@ local function SmartFarmLoop()
             
             S.Status = "Kicking block..."
             DoKick()
-            task.wait(0.5)
+            task.wait(3) -- Wait for kick animation to play before block starts flying
             
             -- STEP 5: Wait for the ENTIRE kick animation to finish
             -- After kick: block flies in air (camera follows block)
