@@ -1848,127 +1848,37 @@ local function SmartFarmLoop()
                 -- Add to good roll history (last 3)
                 pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
                 
-                -- NOW we are the brainrot.
-                -- NOTE: Character may still be at kick zone position at this point!
-                -- The actual brainrot position will be detected once character moves far.
+                -- NOW we are the brainrot - GOOD ROLL!
+                -- Speed feature DISABLED for testing. Brainrot walks naturally to kick zone.
+                -- When brainrot arrives and gets collected, character changes back to player.
                 
-                -- Set target position for speed auto-deactivation
-                _speedTargetPos = _playerKickPos
-                print("[MoronHUB] Speed target set to player pos: " .. tostring(_speedTargetPos))
+                S.Status = "GOOD! Walking to kick zone (no speed)..."
                 
-                -- Activate speed boost
-                pcall(ActivateSpeedBoost)
-                S.Status = "Speed boost ON, running to player..."
+                -- Simply wait for brainrot to be collected or die
+                -- The brainrot will walk naturally to the kick zone
+                local startChar = LP.Character
+                local collectTimeout = tick() + 300 -- 5 min max
                 
-                -- Get references after speed activation
-                local hum = GetHum()
-                local hrp = GetHRP()
-                local char = LP.Character
-                local startChar = char -- Remember which character we started with (brainrot)
-                
-                if hum and hrp and char and _playerKickPos then
-                    -- Target = player position at kick zone (where we need to run to)
-                    local targetPos = _playerKickPos + Vector3.new(0, 3, 0)
-                    print("[MoronHUB] Target = player kick position: " .. tostring(_playerKickPos))
-                    
-                    
-                    -- MoveTo works but game cancels it after ~18 seconds.
-                    -- Manual keyboard input NEVER gets cancelled.
-                    -- Strategy: Use MoveTo + rotate camera toward target,
-                    -- then when stuck, simulate W key press via VirtualInputManager.
-                    local moveTimeout = tick() + 300 -- 5 minutes for very long kicks
-                    local arrived = false
-                    
-                    -- Start with MoveTo (NO CFrame manipulation - game detects it as suspicious)
-                    hum:MoveTo(targetPos)
-                    
-                    -- Track position to detect stuck
-                    local lastPos = hrp.Position
-                    local stuckFrames = 0
-                    local usingVIM = false
-                    local VIM = nil
-                    pcall(function() VIM = game:GetService("VirtualInputManager") end)
-                    
-                    -- Monitor loop
-                    while S.SmartFarm and S.Running and tick() < moveTimeout do
-                        task.wait(0.5)
-                        
-                        local curChar = LP.Character
-                        if not curChar then pcall(DeactivateSpeedBoost); break end
-                        
-                        -- If character changed (brainrot was collected, back to normal player)
-                        if curChar ~= startChar then
-                            print("[MoronHUB] Character changed - brainrot collected!")
-                            pcall(DeactivateSpeedBoost)
-                            arrived = true
+                while S.SmartFarm and S.Running and tick() < collectTimeout do
+                    task.wait(0.5)
+                    local curChar = LP.Character
+                    -- Character changed = brainrot was collected
+                    if curChar ~= startChar then
+                        print("[MoronHUB] Character changed - brainrot collected!")
+                        break
+                    end
+                    -- If we died (wave caught us)
+                    if curChar then
+                        local h = curChar:FindFirstChildOfClass("Humanoid")
+                        if h and h.Health <= 0 then
+                            S.Status = "Wave caught us, respawning..."
+                            WaitForRespawn()
                             break
                         end
-                        local curHrp = curChar:FindFirstChild("HumanoidRootPart")
-                        local curHum = curChar:FindFirstChildOfClass("Humanoid")
-                        if not curHrp or not curHum then pcall(DeactivateSpeedBoost); break end
-                        if curHum.Health <= 0 then pcall(DeactivateSpeedBoost); break end
-                        
-                        -- Check distance to player position (target)
-                        local dist = (curHrp.Position - targetPos).Magnitude
-                        
-                        -- Speed deactivation: turn off speed when within 100 studs of kick zone
-                        if _speedBoostActive and dist < 100 then
-                            print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist) .. " < 100 studs")
-                            pcall(DeactivateSpeedBoost)
-                        end
-                        
-                        if dist < 8 then
-                            -- Arrived at player position
-                            if _speedBoostActive then pcall(DeactivateSpeedBoost) end
-                            arrived = true
-                            break
-                        end
-                        
-                        -- Detect if stuck (position hasn't changed)
-                        local moved = (curHrp.Position - lastPos).Magnitude
-                        lastPos = curHrp.Position
-                        
-                        if moved < 0.5 then
-                            stuckFrames = stuckFrames + 1
-                        else
-                            stuckFrames = 0
-                        end
-                        
-                        -- Keep re-issuing MoveTo (NO CFrame - game detects it as suspicious)
-                        pcall(function() curHum:MoveTo(targetPos) end)
-                        
-                        if stuckFrames >= 3 then
-                            -- STUCK! Try VirtualInputManager to simulate W key
-                            if VIM then
-                                pcall(function()
-                                    VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
-                                end)
-                                usingVIM = true
-                            end
-                        end
-                    end
-                    
-                    -- Cleanup: release W key if we were using VIM
-                    if usingVIM and VIM then
-                        pcall(function()
-                            VIM:SendKeyEvent(false, Enum.KeyCode.W, false, game)
-                        end)
-                    end
-                    
-                    -- If we died (wave caught us), deactivate speed & handle respawn
-                    if not arrived then
-                        pcall(DeactivateSpeedBoost) -- Deactivate speed on death too
-                        S.Status = "Wave caught us, respawning..."
+                    else
                         WaitForRespawn()
+                        break
                     end
-                else
-                    -- _playerKickPos was nil or character refs failed
-                    -- Wait until we die naturally (don't teleport while brainrot!)
-                    print("[MoronHUB] Movement loop skipped (refs nil), waiting to die...")
-                    pcall(DeactivateSpeedBoost)
-                    WaitUntilDead()
-                    S.Status = "Died! Waiting respawn..."
-                    WaitForRespawn()
                 end
                 
                 -- Return to restart loop from top (InGame check will handle state)
@@ -2735,7 +2645,7 @@ Toggle(P_Smart, "Smart Farm", "SmartFarm", function(v) if v then task.spawn(Smar
 
 Section(P_Smart, "SETTINGS", 4)
 NumInput(P_Smart, "Min CPS Target", "TargetCPS", "e.g. 5000", 5)
-Slider(P_Smart, "Kick Power %", 1, 100, "KickPower", 6)
+NumInput(P_Smart, "Kick Power %", "KickPower", "1-100", 6)
 
 Section(P_Smart, "RARITY PRIORITY", 7)
 InfoLabel(P_Smart, "Select rarity to auto-collect regardless of CPS:", 8)
