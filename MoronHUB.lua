@@ -1922,8 +1922,8 @@ local function SmartFarmLoop()
                 _speedTargetPos = _playerKickPos
                 print("[MoronHUB] Speed target set to player pos: " .. tostring(_speedTargetPos))
                 
-                -- Activate speed boost
-                pcall(ActivateSpeedBoost)
+                -- Activate speed boost (non-blocking)
+                task.spawn(function() pcall(ActivateSpeedBoost) end)
                 S.Status = "Speed boost ON, running to player..."
                 
                 -- Get references after speed activation
