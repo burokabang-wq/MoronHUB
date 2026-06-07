@@ -1502,7 +1502,7 @@ local function ActivateSpeedBoost()
     if _speedBoostActive then return end -- Already active
     _speedBoostActive = true
     
-    local targetSpeed = 300 -- Target WalkSpeed
+    local targetSpeed = 200 -- Target WalkSpeed
     
     -- Wait for character to be fully ready (retry up to 20 seconds)
     local char, hum, hrp
@@ -2759,20 +2759,54 @@ local function Slider(parent, text, min, max, key, order)
     
     local dragging = false
     local hitbox = Instance.new("TextButton", row)
-    hitbox.Size = UDim2.new(1, 0, 0, 18); hitbox.Position = UDim2.new(0, 0, 0, 18)
+    hitbox.Size = UDim2.new(1, 0, 0, 22); hitbox.Position = UDim2.new(0, 0, 0, 16)
     hitbox.BackgroundTransparency = 1; hitbox.Text = ""
     
     local function Update(input)
         local tX = track.AbsolutePosition.X; local tW = track.AbsoluteSize.X
         if tW == 0 then return end
-        local p = math.clamp((input.Position.X - tX) / tW, 0, 1)
+        local posX = input.Position.X
+        local p = math.clamp((posX - tX) / tW, 0, 1)
         local v = math.floor(min + (max - min) * p)
         fill.Size = UDim2.new(p, 0, 1, 0); knob.Position = UDim2.new(p, -6, 0.5, -6)
         vLbl.Text = tostring(v); S[key] = v
     end
-    hitbox.MouseButton1Down:Connect(function() dragging = true end)
-    AddC(UIS.InputChanged:Connect(function(i) if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then Update(i) end end))
-    AddC(UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end))
+    
+    -- Mouse/Touch down: start dragging AND update immediately
+    hitbox.MouseButton1Down:Connect(function()
+        dragging = true
+        -- Update immediately on click using mouse position
+        pcall(function()
+            local mouse = LP:GetMouse()
+            if mouse then
+                local tX = track.AbsolutePosition.X; local tW = track.AbsoluteSize.X
+                if tW > 0 then
+                    local p = math.clamp((mouse.X - tX) / tW, 0, 1)
+                    local v = math.floor(min + (max - min) * p)
+                    fill.Size = UDim2.new(p, 0, 1, 0); knob.Position = UDim2.new(p, -6, 0.5, -6)
+                    vLbl.Text = tostring(v); S[key] = v
+                end
+            end
+        end)
+    end)
+    
+    -- Track mouse/touch movement while dragging
+    AddC(UIS.InputChanged:Connect(function(i)
+        if dragging then
+            if i.UserInputType == Enum.UserInputType.MouseMovement
+                or i.UserInputType == Enum.UserInputType.Touch then
+                Update(i)
+            end
+        end
+    end))
+    
+    -- Release on mouse up or touch end
+    AddC(UIS.InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1
+            or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end))
 end
 
 local function Button(parent, text, cb, order)
