@@ -2020,6 +2020,7 @@ local function SmartFarmLoop()
                     
                     -- Now brainrot is far from kick zone - activate speed boost and MoveTo
                     print("[MoronHUB] Starting MoveTo! dist=" .. math.floor(initDist))
+                    _speedTargetPos = targetPos -- Set target for speed loop deactivation
                     pcall(ActivateSpeedBoost)
                     pcall(function() hum:MoveTo(targetPos) end)
                     
