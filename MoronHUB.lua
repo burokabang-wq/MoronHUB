@@ -1631,9 +1631,11 @@ local function ActivateSpeedBoost()
     print("[MoronHUB] Speed Boost ACTIVATED! WalkSpeed = " .. targetSpeed)
     
     -- Internal loop to keep forcing speed while active
-    -- Auto-deactivates when within 50 studs of player (before entering kick zone)
+    -- Records brainrot spawn position, then deactivates at 95% of journey
     task.spawn(function()
-        local hasBeenFar = false -- Must be far from player first before checking deactivation
+        local spawnRecorded = false
+        local totalDistance = 0
+        local deactivateDistance = 0 -- Distance at which to deactivate (5% of total)
         
         while _speedBoostActive and S.Running do
             pcall(function()
@@ -1644,68 +1646,65 @@ local function ActivateSpeedBoost()
                     if h and h.Health > 0 then
                         h.WalkSpeed = targetSpeed
                         
-                        -- Auto-deactivate when close to player position (kick zone)
                         if r and _speedTargetPos then
                             local dist = (r.Position - _speedTargetPos).Magnitude
                             
-                            -- First: wait until brainrot has actually moved far from player
-                            -- (confirms brainrot is at spawn position, not still at kick zone)
-                            if not hasBeenFar then
+                            -- Step 1: Record spawn position once brainrot is far from player
+                            if not spawnRecorded then
                                 if dist > 100 then
-                                    hasBeenFar = true
-                                    print("[MoronHUB] Speed: Brainrot confirmed far (dist=" .. math.floor(dist) .. "), now monitoring approach")
+                                    -- This is the brainrot spawn position (where block landed)
+                                    totalDistance = dist
+                                    -- Deactivate when 5% of journey remains
+                                    -- But minimum 30 studs to ensure enough braking distance
+                                    deactivateDistance = math.max(totalDistance * 0.05, 30)
+                                    spawnRecorded = true
+                                    print("[MoronHUB] Speed: Total distance = " .. math.floor(totalDistance) .. " studs, will deactivate at dist < " .. math.floor(deactivateDistance))
                                 end
                                 return -- Don't check deactivation yet
                             end
                             
-                            -- Deactivate when within 50 studs of player
-                            -- This ensures speed is OFF before entering kick zone
-                            if dist < 50 then
-                                print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist) .. " studs from player (< 50)")
-                                -- DO NOT set _speedBoostActive = false here
-                                -- Let DeactivateSpeedBoost handle it properly
-                                task.spawn(function()
-                                    -- Force cleanup directly
-                                    _speedBoostActive = false
-                                    print("[MoronHUB] Speed Boost: DEACTIVATING from speed loop...")
-                                    pcall(function()
-                                        if _origSpeedData._oldIndex and getrawmetatable and setreadonly then
-                                            local mt = getrawmetatable(game)
-                                            setreadonly(mt, false)
-                                            mt.__index = _origSpeedData._oldIndex
-                                        end
-                                    end)
-                                    pcall(function()
-                                        local RS = game:GetService("ReplicatedStorage")
-                                        local SpeedData = require(RS.Shared.Data.SpeedData)
-                                        if _origSpeedData.SPEED_INCREMENT then SpeedData.SPEED_INCREMENT = _origSpeedData.SPEED_INCREMENT end
-                                        if _origSpeedData.BASE_SPEED then SpeedData.BASE_SPEED = _origSpeedData.BASE_SPEED end
-                                        if _origSpeedData.GetSpeedFromLevel then SpeedData.GetSpeedFromLevel = _origSpeedData.GetSpeedFromLevel end
-                                        if SpeedData.cachedSpeeds then
-                                            for k, _ in pairs(SpeedData.cachedSpeeds) do SpeedData.cachedSpeeds[k] = nil end
-                                        end
-                                    end)
-                                    pcall(function()
-                                        for _, s in pairs(_disabledScripts) do pcall(function() s.Disabled = false end) end
-                                        _disabledScripts = {}
-                                    end)
-                                    pcall(function()
-                                        local c2 = LP.Character
-                                        if c2 then
-                                            local h2 = c2:FindFirstChildOfClass("Humanoid")
-                                            if h2 then h2.WalkSpeed = 22 end
-                                        end
-                                    end)
-                                    _origSpeedData = {}
-                                    print("[MoronHUB] Speed Boost DEACTIVATED from speed loop - WalkSpeed = 22")
+                            -- Step 2: Deactivate when remaining distance < 5% of total
+                            if dist < deactivateDistance then
+                                print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist) .. " (threshold=" .. math.floor(deactivateDistance) .. ")")
+                                -- Force cleanup directly (inline to avoid early-return bug)
+                                _speedBoostActive = false
+                                pcall(function()
+                                    if _origSpeedData._oldIndex and getrawmetatable and setreadonly then
+                                        local mt = getrawmetatable(game)
+                                        setreadonly(mt, false)
+                                        mt.__index = _origSpeedData._oldIndex
+                                    end
                                 end)
+                                pcall(function()
+                                    local RS = game:GetService("ReplicatedStorage")
+                                    local SpeedData = require(RS.Shared.Data.SpeedData)
+                                    if _origSpeedData.SPEED_INCREMENT then SpeedData.SPEED_INCREMENT = _origSpeedData.SPEED_INCREMENT end
+                                    if _origSpeedData.BASE_SPEED then SpeedData.BASE_SPEED = _origSpeedData.BASE_SPEED end
+                                    if _origSpeedData.GetSpeedFromLevel then SpeedData.GetSpeedFromLevel = _origSpeedData.GetSpeedFromLevel end
+                                    if SpeedData.cachedSpeeds then
+                                        for k, _ in pairs(SpeedData.cachedSpeeds) do SpeedData.cachedSpeeds[k] = nil end
+                                    end
+                                end)
+                                pcall(function()
+                                    for _, s in pairs(_disabledScripts) do pcall(function() s.Disabled = false end) end
+                                    _disabledScripts = {}
+                                end)
+                                pcall(function()
+                                    local c2 = LP.Character
+                                    if c2 then
+                                        local h2 = c2:FindFirstChildOfClass("Humanoid")
+                                        if h2 then h2.WalkSpeed = 22 end
+                                    end
+                                end)
+                                _origSpeedData = {}
+                                print("[MoronHUB] Speed Boost DEACTIVATED - WalkSpeed = 22")
                                 return
                             end
                         end
                     end
                 end
             end)
-            task.wait(0.1)
+            task.wait(0.05) -- Check every 0.05s for accuracy at high speed
         end
     end)
 end
