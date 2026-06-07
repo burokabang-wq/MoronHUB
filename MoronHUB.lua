@@ -1630,10 +1630,74 @@ local function ActivateSpeedBoost()
         end
     end)
     
-    -- ═══ TECHNIQUE 5: Set WalkSpeed once (NO force loop) ═══
+    -- ═══ TECHNIQUE 5: Force WalkSpeed + maintain loop ═══
     hum.WalkSpeed = targetSpeed
     print("[MoronHUB] Speed Boost ACTIVATED! WalkSpeed = " .. targetSpeed)
-    -- Deactivation is handled by the movement loop (dist < 100 check)
+    -- Internal loop to keep forcing speed while active
+    -- Deactivates at dist < 100 from kick zone (inline)
+    task.spawn(function()
+        local spawnRecorded = false
+        while _speedBoostActive and S.Running do
+            pcall(function()
+                local c = LP.Character
+                if c then
+                    local h = c:FindFirstChildOfClass("Humanoid")
+                    local r = c:FindFirstChild("HumanoidRootPart")
+                    if h and h.Health > 0 then
+                        h.WalkSpeed = targetSpeed
+                        if r and _speedTargetPos then
+                            local dist = (r.Position - _speedTargetPos).Magnitude
+                            -- Wait until brainrot is actually far from kick zone
+                            if not spawnRecorded then
+                                if dist > 100 then
+                                    spawnRecorded = true
+                                    print("[MoronHUB] Speed: Spawn recorded, dist=" .. math.floor(dist) .. ", will deactivate at dist < 100")
+                                end
+                                return
+                            end
+                            -- Deactivate when close to kick zone
+                            if dist < 100 then
+                                print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist))
+                                _speedBoostActive = false
+                                pcall(function()
+                                    if _origSpeedData._oldIndex and getrawmetatable and setreadonly then
+                                        local mt = getrawmetatable(game)
+                                        setreadonly(mt, false)
+                                        mt.__index = _origSpeedData._oldIndex
+                                    end
+                                end)
+                                pcall(function()
+                                    local RS = game:GetService("ReplicatedStorage")
+                                    local SpeedData = require(RS.Shared.Data.SpeedData)
+                                    if _origSpeedData.SPEED_INCREMENT then SpeedData.SPEED_INCREMENT = _origSpeedData.SPEED_INCREMENT end
+                                    if _origSpeedData.BASE_SPEED then SpeedData.BASE_SPEED = _origSpeedData.BASE_SPEED end
+                                    if _origSpeedData.GetSpeedFromLevel then SpeedData.GetSpeedFromLevel = _origSpeedData.GetSpeedFromLevel end
+                                    if SpeedData.cachedSpeeds then
+                                        for k, _ in pairs(SpeedData.cachedSpeeds) do SpeedData.cachedSpeeds[k] = nil end
+                                    end
+                                end)
+                                pcall(function()
+                                    for _, s in pairs(_disabledScripts) do pcall(function() s.Disabled = false end) end
+                                    _disabledScripts = {}
+                                end)
+                                pcall(function()
+                                    local c2 = LP.Character
+                                    if c2 then
+                                        local h2 = c2:FindFirstChildOfClass("Humanoid")
+                                        if h2 then h2.WalkSpeed = 22 end
+                                    end
+                                end)
+                                _origSpeedData = {}
+                                print("[MoronHUB] Speed Boost DEACTIVATED - WalkSpeed = 22")
+                                return
+                            end
+                        end
+                    end
+                end
+            end)
+            task.wait(0.05)
+        end
+    end)
 end
 
 local function DeactivateSpeedBoost()
@@ -1954,9 +2018,9 @@ local function SmartFarmLoop()
                         end
                     end
                     
-                    -- Now brainrot is far from kick zone - issue MoveTo (no speed boost)
+                    -- Now brainrot is far from kick zone - activate speed boost and MoveTo
                     print("[MoronHUB] Starting MoveTo! dist=" .. math.floor(initDist))
-                    -- pcall(ActivateSpeedBoost) -- DISABLED: testing without speed boost
+                    pcall(ActivateSpeedBoost)
                     pcall(function() hum:MoveTo(targetPos) end)
                     
                     local moveTimeout = tick() + 300 -- 5 min max
@@ -1992,12 +2056,7 @@ local function SmartFarmLoop()
                         -- Track if brainrot was ever far from kick zone
                         if dist > 30 then wasEverFar = true end
                         
-                        -- Speed management: DISABLED for testing
-                        -- if dist >= 100 then
-                        --     pcall(function() curHum.WalkSpeed = 200 end)
-                        -- elseif _speedBoostActive then
-                        --     pcall(DeactivateSpeedBoost)
-                        -- end
+                        -- Speed management handled by force loop in ActivateSpeedBoost
                         
                         -- Only allow arrival if brainrot was previously far (actually walked)
                         if wasEverFar and dist < 8 then
