@@ -2095,7 +2095,14 @@ local function SmartFarmLoop()
                     WaitForRespawn()
                 end
                 
-                -- Return to restart loop from top (InGame check will handle state)
+                -- Wait for InGame attribute to clear before restarting loop
+                local clearWait = tick() + 15
+                while tick() < clearWait do
+                    local ig = LP:GetAttribute("InGame") or ""
+                    if ig == "" then break end
+                    task.wait(0.5)
+                end
+                print("[MoronHUB] InGame cleared, restarting loop")
                 return
             end
         end)
