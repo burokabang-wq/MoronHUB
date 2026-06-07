@@ -1785,7 +1785,29 @@ local function SmartFarmLoop()
                 task.wait(0.2)
             end
             
-            task.wait(0.3) -- Small delay to ensure position is updated
+            -- Wait for brainrot to actually land far from kick zone
+            -- The kick animation sends the block flying - brainrot spawns where block lands
+            -- We need to wait until brainrot position is FAR from kick zone (block has landed)
+            S.Status = "Waiting for block to land..."
+            local landTimeout = tick() + 25 -- Max 25s for block to land
+            while S.SmartFarm and S.Running and tick() < landTimeout do
+                local curHrp = nil
+                pcall(function()
+                    local c = LP.Character
+                    if c then curHrp = c:FindFirstChild("HumanoidRootPart") end
+                end)
+                if curHrp and _playerKickPos then
+                    local distFromKick = (curHrp.Position - _playerKickPos).Magnitude
+                    if distFromKick > 30 then
+                        -- Brainrot has landed far enough from kick zone
+                        print("[MoronHUB] Block landed! dist from kick zone: " .. math.floor(distFromKick))
+                        break
+                    end
+                end
+                task.wait(0.3)
+            end
+            
+            task.wait(0.5) -- Extra settle time after landing
             
             -- STEP 6: Parse brainrot from InGame attribute
             S.Status = "Checking brainrot..."
