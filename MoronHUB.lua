@@ -1633,6 +1633,8 @@ local function ActivateSpeedBoost()
     -- Internal loop to keep forcing speed while active
     -- Auto-deactivates when within 50 studs of player (before entering kick zone)
     task.spawn(function()
+        local hasBeenFar = false -- Must be far from player first before checking deactivation
+        
         while _speedBoostActive and S.Running do
             pcall(function()
                 local c = LP.Character
@@ -1645,6 +1647,16 @@ local function ActivateSpeedBoost()
                         -- Auto-deactivate when close to player position (kick zone)
                         if r and _speedTargetPos then
                             local dist = (r.Position - _speedTargetPos).Magnitude
+                            
+                            -- First: wait until brainrot has actually moved far from player
+                            -- (confirms brainrot is at spawn position, not still at kick zone)
+                            if not hasBeenFar then
+                                if dist > 100 then
+                                    hasBeenFar = true
+                                    print("[MoronHUB] Speed: Brainrot confirmed far (dist=" .. math.floor(dist) .. "), now monitoring approach")
+                                end
+                                return -- Don't check deactivation yet
+                            end
                             
                             -- Deactivate when within 50 studs of player
                             -- This ensures speed is OFF before entering kick zone
