@@ -1836,8 +1836,9 @@ local function SmartFarmLoop()
                 pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
                 
                 -- NOW we are the brainrot, positioned FAR from kick zone.
-                -- Wait a moment for position to fully update after becoming brainrot
-                task.wait(1)
+                -- Activate speed boost IMMEDIATELY on good roll
+                pcall(ActivateSpeedBoost)
+                S.Status = "Speed boost ON, running to kick zone..."
                 
                 local kr = GetKickReady()
                 local hum = GetHum()
@@ -1847,18 +1848,11 @@ local function SmartFarmLoop()
                 if kr and hum and hrp and char then
                     local targetPos = kr.Position + Vector3.new(0, 3, 0)
                     
-                    -- Calculate total distance BEFORE activating speed
+                    -- Record start position for percentage calculation
                     local startPos = hrp.Position
                     local totalDistance = (startPos - targetPos).Magnitude
-                    
-                    -- Only activate speed boost if we're actually far from kick zone
-                    -- If totalDistance < 50, we're too close - don't bother with speed
-                    if totalDistance > 50 then
-                        pcall(ActivateSpeedBoost)
-                        S.Status = "Speed boost ON, running to kick zone..."
-                    else
-                        S.Status = "Running to kick zone..."
-                    end
+                    -- If totalDistance is too small (position not updated yet), use a safe default
+                    if totalDistance < 20 then totalDistance = 200 end
                     
                     -- MoveTo works but game cancels it after ~18 seconds.
                     -- Manual keyboard input NEVER gets cancelled.
