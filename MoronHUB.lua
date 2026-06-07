@@ -1503,10 +1503,10 @@ local function ActivateSpeedBoost()
     
     local targetSpeed = 200 -- Target WalkSpeed
     
-    -- Wait for character to be fully ready (retry up to 5 seconds)
+    -- Wait for character to be fully ready (retry up to 20 seconds)
     local char, hum, hrp
     local waitStart = tick()
-    while tick() - waitStart < 5 do
+    while tick() - waitStart < 20 do
         char = LP.Character
         if char then
             hum = char:FindFirstChildOfClass("Humanoid")
@@ -1519,7 +1519,7 @@ local function ActivateSpeedBoost()
     end
     
     if not char or not hum or not hrp then
-        print("[MoronHUB] Speed Boost: Character not ready after 5s, aborting")
+        print("[MoronHUB] Speed Boost: Character not ready after 20s, aborting")
         _speedBoostActive = false
         return
     end
