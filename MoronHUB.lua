@@ -1856,12 +1856,6 @@ local function SmartFarmLoop()
                 if kr and hum and hrp and char then
                     local targetPos = kr.Position + Vector3.new(0, 3, 0)
                     
-                    -- Record start position for percentage calculation
-                    local startPos = hrp.Position
-                    local totalDistance = (startPos - targetPos).Magnitude
-                    -- If totalDistance is too small (position not updated yet), use a safe default
-                    if totalDistance < 20 then totalDistance = 200 end
-                    
                     -- MoveTo works but game cancels it after ~18 seconds.
                     -- Manual keyboard input NEVER gets cancelled.
                     -- Strategy: Use MoveTo + rotate camera toward target,
@@ -1878,6 +1872,12 @@ local function SmartFarmLoop()
                     
                     -- Start with MoveTo
                     hum:MoveTo(targetPos)
+                    
+                    -- Record start position NOW (after MoveTo issued, character confirmed)
+                    local startPos = hrp.Position
+                    local totalDistance = (startPos - targetPos).Magnitude
+                    local distanceRecorded = (totalDistance > 20) -- Only trust if > 20 studs
+                    print("[MoronHUB] Speed: totalDistance = " .. math.floor(totalDistance) .. " studs")
                     
                     -- Track position to detect stuck
                     local lastPos = hrp.Position
@@ -1897,16 +1897,33 @@ local function SmartFarmLoop()
                         if not curHrp or not curHum then pcall(DeactivateSpeedBoost); break end
                         if curHum.Health <= 0 then pcall(DeactivateSpeedBoost); break end
                         
-                        -- Check distance & percentage traveled
+                        -- Check distance to target
                         local dist = (curHrp.Position - targetPos).Magnitude
-                        local traveled = totalDistance - dist
-                        local percent = (totalDistance > 0) and (traveled / totalDistance * 100) or 100
+                        
+                        -- Update totalDistance on first loop if it wasn't recorded properly
+                        if not distanceRecorded then
+                            local newTotal = (curHrp.Position - targetPos).Magnitude
+                            if newTotal > 20 then
+                                totalDistance = newTotal
+                                startPos = curHrp.Position
+                                distanceRecorded = true
+                                print("[MoronHUB] Speed: Updated totalDistance = " .. math.floor(totalDistance) .. " studs")
+                            end
+                        end
+                        
+                        -- Calculate percentage traveled
+                        local percent = 0
+                        if distanceRecorded and totalDistance > 0 then
+                            local traveled = totalDistance - dist
+                            percent = (traveled / totalDistance) * 100
+                        end
                         
                         -- Deactivate speed after 95% of journey completed
-                        -- Character walks normally for the last 5% to ensure brainrot collects
-                        if percent >= 95 and _speedBoostActive then
+                        -- OR if distance < 15 studs (absolute safety fallback)
+                        if _speedBoostActive and (percent >= 95 or dist < 15) then
                             pcall(DeactivateSpeedBoost)
                             S.Status = "Speed off, entering kick zone..."
+                            print("[MoronHUB] Speed OFF at " .. math.floor(percent) .. "% (dist=" .. math.floor(dist) .. ")")
                         end
                         
                         if dist < 8 then
