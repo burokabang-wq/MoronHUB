@@ -1654,9 +1654,9 @@ local function ActivateSpeedBoost()
                                 if dist > 100 then
                                     -- This is the brainrot spawn position (where block landed)
                                     totalDistance = dist
-                                    -- Deactivate when within 200 studs of player (fixed distance)
-                                    -- This is close enough to kick zone but far enough to brake
-                                    deactivateDistance = 200
+                                    -- Deactivate when within 100 studs of player (fixed distance)
+                                    -- Close enough to kick zone but still safe
+                                    deactivateDistance = 100
                                     spawnRecorded = true
                                     print("[MoronHUB] Speed: Total distance = " .. math.floor(totalDistance) .. " studs, will deactivate at dist < " .. deactivateDistance)
                                 end
