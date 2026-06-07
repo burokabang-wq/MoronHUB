@@ -1527,6 +1527,10 @@ local function ActivateSpeedBoost()
     
     print("[MoronHUB] Speed Boost: ACTIVATING (Good Roll detected)...")
     
+    -- Save original WalkSpeed before any modifications
+    _origSpeedData._origWalkSpeed = hum.WalkSpeed
+    print("[MoronHUB] Speed Boost: Original WalkSpeed saved: " .. tostring(hum.WalkSpeed))
+    
     -- ═══ TECHNIQUE 1: Disable WalkSpeed monitor connections ═══
     pcall(function()
         if getconnections then
@@ -1675,16 +1679,49 @@ local function DeactivateSpeedBoost()
         _disabledScripts = {}
     end)
     pcall(function()
-        -- Restore WalkSpeed to normal
+        -- Re-enable WalkSpeed connections (so game can control speed again)
         local c = LP.Character
         if c then
             local h = c:FindFirstChildOfClass("Humanoid")
-            if h then h.WalkSpeed = 22 end
+            if h then
+                -- Restore original WalkSpeed
+                local origSpeed = _origSpeedData._origWalkSpeed or 22
+                h.WalkSpeed = origSpeed
+                print("[MoronHUB] Speed Boost: WalkSpeed restored to " .. tostring(origSpeed))
+                
+                -- Re-enable connections so game recalculates speed
+                if getconnections then
+                    pcall(function()
+                        local signal = h:GetPropertyChangedSignal("WalkSpeed")
+                        local conns = getconnections(signal)
+                        for _, conn in pairs(conns) do
+                            pcall(function() conn:Enable() end)
+                        end
+                    end)
+                end
+            end
+        end
+    end)
+    
+    -- Wait a moment for game to recalculate speed from its own systems
+    task.wait(0.5)
+    
+    -- Force game to recalculate by triggering a small WalkSpeed change
+    pcall(function()
+        local c = LP.Character
+        if c then
+            local h = c:FindFirstChildOfClass("Humanoid")
+            if h then
+                local cur = h.WalkSpeed
+                h.WalkSpeed = cur - 1
+                task.wait(0.1)
+                h.WalkSpeed = cur
+            end
         end
     end)
     
     _origSpeedData = {}
-    print("[MoronHUB] Speed Boost DEACTIVATED - Normal speed restored")
+    print("[MoronHUB] Speed Boost DEACTIVATED - Normal speed fully restored")
 end
 
 -- Forward declaration for notification function (defined later with UI)
