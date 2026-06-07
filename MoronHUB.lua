@@ -1930,6 +1930,7 @@ local function SmartFarmLoop()
                 local hum = GetHum()
                 local hrp = GetHRP()
                 local char = LP.Character
+                local startChar = char -- Remember which character we started with (brainrot)
                 
                 if hum and hrp and char and _playerKickPos then
                     -- Target = player position at kick zone (where we need to run to)
@@ -1967,6 +1968,14 @@ local function SmartFarmLoop()
                         
                         local curChar = LP.Character
                         if not curChar then pcall(DeactivateSpeedBoost); break end
+                        
+                        -- If character changed (brainrot was collected, back to normal player)
+                        if curChar ~= startChar then
+                            print("[MoronHUB] Character changed - brainrot collected!")
+                            pcall(DeactivateSpeedBoost)
+                            arrived = true
+                            break
+                        end
                         local curHrp = curChar:FindFirstChild("HumanoidRootPart")
                         local curHum = curChar:FindFirstChildOfClass("Humanoid")
                         if not curHrp or not curHum then pcall(DeactivateSpeedBoost); break end
