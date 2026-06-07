@@ -1704,7 +1704,7 @@ local function ActivateSpeedBoost()
                     end
                 end
             end)
-            task.wait(0.05) -- Check every 0.05s for accuracy at high speed
+            task.wait(0.2) -- Check every 0.2s
         end
     end)
 end
