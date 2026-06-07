@@ -1638,11 +1638,8 @@ end
 
 local function DeactivateSpeedBoost()
     -- Always run cleanup regardless of _speedBoostActive state
-    -- (movement loop handles deactivation at dist < 100)
     _speedBoostActive = false
-    
     print("[MoronHUB] Speed Boost: DEACTIVATING...")
-    
     -- ═══ CLEANUP: Restore everything ═══
     pcall(function()
         -- Restore metatable
@@ -1679,49 +1676,15 @@ local function DeactivateSpeedBoost()
         _disabledScripts = {}
     end)
     pcall(function()
-        -- Re-enable WalkSpeed connections (so game can control speed again)
+        -- Restore WalkSpeed to normal
         local c = LP.Character
         if c then
             local h = c:FindFirstChildOfClass("Humanoid")
-            if h then
-                -- Restore original WalkSpeed
-                local origSpeed = _origSpeedData._origWalkSpeed or 22
-                h.WalkSpeed = origSpeed
-                print("[MoronHUB] Speed Boost: WalkSpeed restored to " .. tostring(origSpeed))
-                
-                -- Re-enable connections so game recalculates speed
-                if getconnections then
-                    pcall(function()
-                        local signal = h:GetPropertyChangedSignal("WalkSpeed")
-                        local conns = getconnections(signal)
-                        for _, conn in pairs(conns) do
-                            pcall(function() conn:Enable() end)
-                        end
-                    end)
-                end
-            end
+            if h then h.WalkSpeed = 22 end
         end
     end)
-    
-    -- Wait a moment for game to recalculate speed from its own systems
-    task.wait(0.5)
-    
-    -- Force game to recalculate by triggering a small WalkSpeed change
-    pcall(function()
-        local c = LP.Character
-        if c then
-            local h = c:FindFirstChildOfClass("Humanoid")
-            if h then
-                local cur = h.WalkSpeed
-                h.WalkSpeed = cur - 1
-                task.wait(0.1)
-                h.WalkSpeed = cur
-            end
-        end
-    end)
-    
     _origSpeedData = {}
-    print("[MoronHUB] Speed Boost DEACTIVATED - Normal speed fully restored")
+    print("[MoronHUB] Speed Boost DEACTIVATED - Normal speed restored")
 end
 
 -- Forward declaration for notification function (defined later with UI)
@@ -2030,13 +1993,13 @@ local function SmartFarmLoop()
                         if dist > 30 then wasEverFar = true end
                         
                         -- Speed management: keep speed while far, deactivate when close
-                        if dist >= 150 then
+                        if dist >= 100 then
                             -- Re-enforce speed in case game resets it
                             pcall(function() curHum.WalkSpeed = 200 end)
                         elseif _speedBoostActive then
                             -- Close to kick zone - deactivate speed boost
                             pcall(DeactivateSpeedBoost)
-                            print("[MoronHUB] Speed deactivated (dist < 150)")
+                            print("[MoronHUB] Speed deactivated (dist < 100)")
                         end
                         
                         -- Only allow arrival if brainrot was previously far (actually walked)
