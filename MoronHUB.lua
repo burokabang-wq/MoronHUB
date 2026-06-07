@@ -2737,56 +2737,7 @@ local function Dropdown(parent, text, options, key, order)
     end)
 end
 
-local function Slider(parent, text, min, max, key, order)
-    local row = Instance.new("Frame", parent)
-    row.Size = UDim2.new(1, 0, 0, 38); row.BackgroundColor3 = Color.Card; row.BorderSizePixel = 0; row.LayoutOrder = order
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
-    
-    local lbl = Instance.new("TextLabel", row)
-    lbl.Size = UDim2.new(0.6, 0, 0, 16); lbl.Position = UDim2.new(0, 12, 0, 2)
-    lbl.BackgroundTransparency = 1; lbl.Text = text
-    lbl.TextColor3 = Color.Text; lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 10
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-    
-    local val = S[key] or min
-    local vLbl = Instance.new("TextLabel", row)
-    vLbl.Size = UDim2.new(0.35, 0, 0, 16); vLbl.Position = UDim2.new(0.6, 0, 0, 2)
-    vLbl.BackgroundTransparency = 1; vLbl.Text = tostring(val)
-    vLbl.TextColor3 = Color.Primary; vLbl.Font = Enum.Font.GothamBold; vLbl.TextSize = 10
-    vLbl.TextXAlignment = Enum.TextXAlignment.Right
-    
-    local track = Instance.new("Frame", row)
-    track.Size = UDim2.new(1, -24, 0, 4); track.Position = UDim2.new(0, 12, 0, 26)
-    track.BackgroundColor3 = Color.ToggleOff; track.BorderSizePixel = 0
-    Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
-    
-    local pct = math.clamp((val - min) / math.max(max - min, 1), 0, 1)
-    local fill = Instance.new("Frame", track)
-    fill.Size = UDim2.new(pct, 0, 1, 0); fill.BackgroundColor3 = Color.Primary; fill.BorderSizePixel = 0
-    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
-    
-    local knob = Instance.new("Frame", track)
-    knob.Size = UDim2.new(0, 12, 0, 12); knob.Position = UDim2.new(pct, -6, 0.5, -6)
-    knob.BackgroundColor3 = Color.Text; knob.BorderSizePixel = 0
-    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
-    
-    local dragging = false
-    local hitbox = Instance.new("TextButton", row)
-    hitbox.Size = UDim2.new(1, 0, 0, 18); hitbox.Position = UDim2.new(0, 0, 0, 18)
-    hitbox.BackgroundTransparency = 1; hitbox.Text = ""
-    
-    local function Update(input)
-        local tX = track.AbsolutePosition.X; local tW = track.AbsoluteSize.X
-        if tW == 0 then return end
-        local p = math.clamp((input.Position.X - tX) / tW, 0, 1)
-        local v = math.floor(min + (max - min) * p)
-        fill.Size = UDim2.new(p, 0, 1, 0); knob.Position = UDim2.new(p, -6, 0.5, -6)
-        vLbl.Text = tostring(v); S[key] = v
-    end
-    hitbox.MouseButton1Down:Connect(function() dragging = true end)
-    AddC(UIS.InputChanged:Connect(function(i) if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then Update(i) end end))
-    AddC(UIS.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end))
-end
+
 
 local function Button(parent, text, cb, order)
     local btn = Instance.new("TextButton", parent)
@@ -2830,7 +2781,7 @@ Toggle(P_Smart, "Smart Farm", "SmartFarm", function(v) if v then task.spawn(Smar
 
 Section(P_Smart, "SETTINGS", 4)
 NumInput(P_Smart, "Min CPS Target", "TargetCPS", "e.g. 5000", 5)
-Slider(P_Smart, "Kick Power %", 1, 100, "KickPower", 6)
+NumInput(P_Smart, "Kick Power %", "KickPower", "1-100", 6)
 
 Section(P_Smart, "RARITY PRIORITY", 7)
 InfoLabel(P_Smart, "Select rarity to auto-collect regardless of CPS:", 8)
