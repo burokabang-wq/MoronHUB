@@ -1504,10 +1504,10 @@ local function ActivateSpeedBoost()
     
     local targetSpeed = 200 -- Target WalkSpeed
     
-    -- Wait for character to be fully ready (retry up to 20 seconds)
+    -- Wait for character to be fully ready (retry up to 3 seconds - character should already exist)
     local char, hum, hrp
     local waitStart = tick()
-    while tick() - waitStart < 20 do
+    while tick() - waitStart < 3 do
         char = LP.Character
         if char then
             hum = char:FindFirstChildOfClass("Humanoid")
@@ -1516,11 +1516,11 @@ local function ActivateSpeedBoost()
                 break
             end
         end
-        task.wait(0.2)
+        task.wait(0.1)
     end
     
     if not char or not hum or not hrp then
-        print("[MoronHUB] Speed Boost: Character not ready after 20s, aborting")
+        print("[MoronHUB] Speed Boost: Character not ready after 3s, aborting")
         _speedBoostActive = false
         return
     end
@@ -1961,19 +1961,18 @@ local function SmartFarmLoop()
                         S.Status = "Wave caught us, respawning..."
                         WaitForRespawn()
                     end
+                else
+                    -- _playerKickPos was nil or character refs failed
+                    -- Wait until we die naturally (don't teleport while brainrot!)
+                    print("[MoronHUB] Movement loop skipped (refs nil), waiting to die...")
+                    pcall(DeactivateSpeedBoost)
+                    WaitUntilDead()
+                    S.Status = "Died! Waiting respawn..."
+                    WaitForRespawn()
                 end
                 
-                task.wait(0.5)
-                
-                -- Wait until KickButton is visible (confirms we're in kick zone)
-                S.Status = "Waiting kick ready..."
-                local kickWait = tick() + 10
-                while not CanKick() and tick() < kickWait and S.SmartFarm and S.Running do
-                    task.wait(0.5)
-                end
-                
-                task.wait(0.3)
-                -- Loop continues from top -> kick again
+                -- Return to restart loop from top (InGame check will handle state)
+                return
             end
         end)
         
