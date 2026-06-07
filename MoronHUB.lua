@@ -1650,8 +1650,43 @@ local function ActivateSpeedBoost()
                             -- This ensures speed is OFF before entering kick zone
                             if dist < 50 then
                                 print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist) .. " studs from player (< 50)")
-                                _speedBoostActive = false
-                                task.spawn(DeactivateSpeedBoost)
+                                -- DO NOT set _speedBoostActive = false here
+                                -- Let DeactivateSpeedBoost handle it properly
+                                task.spawn(function()
+                                    -- Force cleanup directly
+                                    _speedBoostActive = false
+                                    print("[MoronHUB] Speed Boost: DEACTIVATING from speed loop...")
+                                    pcall(function()
+                                        if _origSpeedData._oldIndex and getrawmetatable and setreadonly then
+                                            local mt = getrawmetatable(game)
+                                            setreadonly(mt, false)
+                                            mt.__index = _origSpeedData._oldIndex
+                                        end
+                                    end)
+                                    pcall(function()
+                                        local RS = game:GetService("ReplicatedStorage")
+                                        local SpeedData = require(RS.Shared.Data.SpeedData)
+                                        if _origSpeedData.SPEED_INCREMENT then SpeedData.SPEED_INCREMENT = _origSpeedData.SPEED_INCREMENT end
+                                        if _origSpeedData.BASE_SPEED then SpeedData.BASE_SPEED = _origSpeedData.BASE_SPEED end
+                                        if _origSpeedData.GetSpeedFromLevel then SpeedData.GetSpeedFromLevel = _origSpeedData.GetSpeedFromLevel end
+                                        if SpeedData.cachedSpeeds then
+                                            for k, _ in pairs(SpeedData.cachedSpeeds) do SpeedData.cachedSpeeds[k] = nil end
+                                        end
+                                    end)
+                                    pcall(function()
+                                        for _, s in pairs(_disabledScripts) do pcall(function() s.Disabled = false end) end
+                                        _disabledScripts = {}
+                                    end)
+                                    pcall(function()
+                                        local c2 = LP.Character
+                                        if c2 then
+                                            local h2 = c2:FindFirstChildOfClass("Humanoid")
+                                            if h2 then h2.WalkSpeed = 22 end
+                                        end
+                                    end)
+                                    _origSpeedData = {}
+                                    print("[MoronHUB] Speed Boost DEACTIVATED from speed loop - WalkSpeed = 22")
+                                end)
                                 return
                             end
                         end
