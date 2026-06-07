@@ -1763,15 +1763,14 @@ local function SmartFarmLoop()
             task.wait(3) -- Wait for kick animation to play before block starts flying
             
             -- STEP 5: Wait for the ENTIRE kick animation to finish
-            -- After kick: block flies in air (camera follows block)
-            -- Block lands and transforms into brainrot
-            -- We detect landing by: Humanoid.FloorMaterial ~= Air (feet on ground)
-            -- AND InGame attribute is set
+            -- IMPORTANT: After kick, our character stays at kick zone!
+            -- The block flying is just a visual/camera animation.
+            -- We detect animation end by: camera stops moving (stabilizes)
+            -- Only AFTER animation ends does the brainrot actually spawn far away.
             S.Status = "Waiting for block to land..."
-            local fullAnimTimeout = tick() + 30 -- Max 30s for entire animation
-            local blockLanded = false
             
             -- Phase 1: Wait for InGame to be set (brainrot assigned)
+            local fullAnimTimeout = tick() + 30
             while S.SmartFarm and S.Running and tick() < fullAnimTimeout do
                 local inGame = LP:GetAttribute("InGame") or ""
                 if inGame ~= "" then
@@ -1781,32 +1780,63 @@ local function SmartFarmLoop()
                 task.wait(0.3)
             end
             
-            -- Phase 2: Wait for brainrot to touch the ground (block has landed)
-            -- FloorMaterial == Air means still flying/falling
-            S.Status = "Block in air, waiting to land..."
-            local groundTimeout = tick() + 25
-            while S.SmartFarm and S.Running and tick() < groundTimeout do
-                local curChar = LP.Character
-                if curChar then
-                    local curHum = curChar:FindFirstChildOfClass("Humanoid")
-                    if curHum then
-                        local floor = curHum.FloorMaterial
-                        if floor and floor ~= Enum.Material.Air then
-                            -- Brainrot has landed! Feet on ground
-                            print("[MoronHUB] Brainrot LANDED! FloorMaterial: " .. tostring(floor))
-                            blockLanded = true
-                            break
-                        end
+            -- Phase 2: Wait for camera to STOP moving (animation finished)
+            -- During kick animation, camera follows the flying block
+            -- When block lands and becomes brainrot, camera stabilizes
+            S.Status = "Block flying, waiting for camera to stabilize..."
+            local WS = game:GetService("Workspace")
+            local cam = WS.CurrentCamera or WS:FindFirstChildOfClass("Camera")
+            local camStableFrames = 0
+            local lastCamPos = cam and cam.CFrame.Position or Vector3.new(0,0,0)
+            local camTimeout = tick() + 25
+            
+            while S.SmartFarm and S.Running and tick() < camTimeout do
+                task.wait(0.3)
+                if cam then
+                    local curCamPos = cam.CFrame.Position
+                    local camMoved = (curCamPos - lastCamPos).Magnitude
+                    lastCamPos = curCamPos
+                    
+                    if camMoved < 1 then
+                        -- Camera barely moved
+                        camStableFrames = camStableFrames + 1
+                    else
+                        camStableFrames = 0
+                    end
+                    
+                    -- Camera stable for 5 frames (1.5s) = animation done
+                    if camStableFrames >= 5 then
+                        print("[MoronHUB] Camera stabilized! Animation done.")
+                        break
                     end
                 end
-                task.wait(0.2)
             end
             
-            if not blockLanded then
-                print("[MoronHUB] Block land timeout - continuing anyway")
+            -- Phase 3: Wait for character position to UPDATE (teleport to brainrot location)
+            -- After animation, game teleports our character to where block landed
+            -- We wait until our HRP position is FAR from kick zone (position updated)
+            S.Status = "Waiting for position update..."
+            if _playerKickPos then
+                local posUpdateTimeout = tick() + 15
+                while S.SmartFarm and S.Running and tick() < posUpdateTimeout do
+                    local curChar = LP.Character
+                    if curChar then
+                        local curHrp = curChar:FindFirstChild("HumanoidRootPart")
+                        if curHrp then
+                            local distFromKick = (curHrp.Position - _playerKickPos).Magnitude
+                            print("[MoronHUB] Pos update check... dist from kick: " .. math.floor(distFromKick))
+                            if distFromKick > 30 then
+                                print("[MoronHUB] Position updated! Brainrot is now far from kick zone.")
+                                break
+                            end
+                        end
+                    end
+                    task.wait(0.5)
+                end
             end
             
-            task.wait(1) -- Extra settle time after landing
+            task.wait(1) -- Extra settle time
+            print("[MoronHUB] Block landed, proceeding to check brainrot...")
             
             -- STEP 6: Parse brainrot from InGame attribute
             S.Status = "Checking brainrot..."
