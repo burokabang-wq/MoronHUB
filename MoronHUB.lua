@@ -1654,16 +1654,16 @@ local function ActivateSpeedBoost()
                                 if dist > 100 then
                                     -- This is the brainrot spawn position (where block landed)
                                     totalDistance = dist
-                                    -- Deactivate when 5% of journey remains
-                                    -- But minimum 30 studs to ensure enough braking distance
-                                    deactivateDistance = math.max(totalDistance * 0.05, 30)
+                                    -- Deactivate when within 200 studs of player (fixed distance)
+                                    -- This is close enough to kick zone but far enough to brake
+                                    deactivateDistance = 200
                                     spawnRecorded = true
-                                    print("[MoronHUB] Speed: Total distance = " .. math.floor(totalDistance) .. " studs, will deactivate at dist < " .. math.floor(deactivateDistance))
+                                    print("[MoronHUB] Speed: Total distance = " .. math.floor(totalDistance) .. " studs, will deactivate at dist < " .. deactivateDistance)
                                 end
                                 return -- Don't check deactivation yet
                             end
                             
-                            -- Step 2: Deactivate when remaining distance < 5% of total
+                            -- Step 2: Deactivate when within 200 studs of player
                             if dist < deactivateDistance then
                                 print("[MoronHUB] Speed auto-OFF: dist=" .. math.floor(dist) .. " (threshold=" .. math.floor(deactivateDistance) .. ")")
                                 -- Force cleanup directly (inline to avoid early-return bug)
@@ -1710,10 +1710,11 @@ local function ActivateSpeedBoost()
 end
 
 local function DeactivateSpeedBoost()
-    if not _speedBoostActive then return end -- Already inactive
+    -- Always run cleanup regardless of _speedBoostActive state
+    -- (force speed loop may have already set it to false)
     _speedBoostActive = false
     
-    print("[MoronHUB] Speed Boost: DEACTIVATING (near kick zone)...")
+    print("[MoronHUB] Speed Boost: DEACTIVATING...")
     
     -- ═══ CLEANUP: Restore everything ═══
     pcall(function()
@@ -1940,7 +1941,7 @@ local function SmartFarmLoop()
                     -- Manual keyboard input NEVER gets cancelled.
                     -- Strategy: Use MoveTo + rotate camera toward target,
                     -- then when stuck, simulate W key press via VirtualInputManager.
-                    local moveTimeout = tick() + 60
+                    local moveTimeout = tick() + 300 -- 5 minutes for very long kicks
                     local arrived = false
                     
                     -- First: rotate character to face target
