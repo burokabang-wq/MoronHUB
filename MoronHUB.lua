@@ -1496,6 +1496,7 @@ local _origSpeedData = {}
 local _speedBoostConnections = {}
 local _disabledScripts = {}
 local _speedBoostActive = false
+local _speedTargetPos = nil -- Player position at kick zone (target for brainrot to run to)
 
 local function ActivateSpeedBoost()
     if _speedBoostActive then return end -- Already active
@@ -1630,18 +1631,9 @@ local function ActivateSpeedBoost()
     print("[MoronHUB] Speed Boost ACTIVATED! WalkSpeed = " .. targetSpeed)
     
     -- Internal loop to keep forcing speed while active
-    -- Also monitors distance to kick zone and auto-deactivates when close
+    -- Also monitors distance to player position and auto-deactivates when close
     task.spawn(function()
-        local kickZonePos = nil
-        pcall(function()
-            local areas = game:GetService("Workspace"):FindFirstChild("Areas")
-            if areas then
-                local kr = areas:FindFirstChild("KickReady")
-                if kr then kickZonePos = kr.Position end
-            end
-        end)
-        
-        local maxDistSeen = 0 -- Track the farthest distance we've been from kick zone
+        local maxDistSeen = 0 -- Track the farthest distance from target
         
         while _speedBoostActive and S.Running do
             pcall(function()
@@ -1652,9 +1644,9 @@ local function ActivateSpeedBoost()
                     if h and h.Health > 0 then
                         h.WalkSpeed = targetSpeed
                         
-                        -- Auto-deactivate when approaching kick zone
-                        if r and kickZonePos then
-                            local dist = (r.Position - kickZonePos).Magnitude
+                        -- Auto-deactivate when approaching player/target position
+                        if r and _speedTargetPos then
+                            local dist = (r.Position - _speedTargetPos).Magnitude
                             
                             -- Track max distance (= how far the kick sent us)
                             if dist > maxDistSeen then
@@ -1662,11 +1654,11 @@ local function ActivateSpeedBoost()
                             end
                             
                             -- Only start checking deactivation after we've been far away
-                            -- (maxDistSeen > 30 means we actually left the kick zone)
-                            if maxDistSeen > 30 then
-                                -- Deactivate at 95% of journey OR within 15 studs
+                            -- (maxDistSeen > 50 means we actually are at brainrot spawn)
+                            if maxDistSeen > 50 then
+                                -- Deactivate at 95% of journey OR within 20 studs of player
                                 local percent = ((maxDistSeen - dist) / maxDistSeen) * 100
-                                if percent >= 95 or dist < 15 then
+                                if percent >= 95 or dist < 20 then
                                     print("[MoronHUB] Speed auto-OFF: " .. math.floor(percent) .. "% (dist=" .. math.floor(dist) .. ", maxDist=" .. math.floor(maxDistSeen) .. ")")
                                     _speedBoostActive = false -- Stop this loop
                                     task.spawn(DeactivateSpeedBoost) -- Clean deactivation
@@ -1788,6 +1780,13 @@ local function SmartFarmLoop()
             end
             
             -- STEP 4: Kick the block!
+            -- Save player position at kick zone BEFORE becoming brainrot
+            local _playerKickPos = nil
+            pcall(function()
+                local h = GetHRP()
+                if h then _playerKickPos = h.Position end
+            end)
+            
             S.Status = "Kicking block..."
             DoKick()
             task.wait(0.5)
@@ -1883,23 +1882,24 @@ local function SmartFarmLoop()
                 -- NOTE: Character may still be at kick zone position at this point!
                 -- The actual brainrot position will be detected once character moves far.
                 
+                -- Set target position for speed auto-deactivation
+                _speedTargetPos = _playerKickPos
+                print("[MoronHUB] Speed target set to player pos: " .. tostring(_speedTargetPos))
+                
                 -- Activate speed boost
                 pcall(ActivateSpeedBoost)
-                S.Status = "Speed boost ON, running to kick zone..."
+                S.Status = "Speed boost ON, running to player..."
                 
                 -- Get references after speed activation
-                local kr = GetKickReady()
                 local hum = GetHum()
                 local hrp = GetHRP()
                 local char = LP.Character
                 
-                if kr and hum and hrp and char then
-                    local targetPos = kr.Position + Vector3.new(0, 3, 0)
+                if hum and hrp and char and _playerKickPos then
+                    -- Target = player position at kick zone (where we need to run to)
+                    local targetPos = _playerKickPos + Vector3.new(0, 3, 0)
+                    print("[MoronHUB] Target = player kick position: " .. tostring(_playerKickPos))
                     
-                    -- totalDistance will be recorded INSIDE the loop once character
-                    -- is confirmed far from kick zone (meaning brainrot position is real)
-                    local totalDistance = 0
-                    local distanceRecorded = false
                     
                     -- MoveTo works but game cancels it after ~18 seconds.
                     -- Manual keyboard input NEVER gets cancelled.
@@ -1936,42 +1936,15 @@ local function SmartFarmLoop()
                         if not curHrp or not curHum then pcall(DeactivateSpeedBoost); break end
                         if curHum.Health <= 0 then pcall(DeactivateSpeedBoost); break end
                         
-                        -- Check distance to kick zone
+                        -- Check distance to player position (target)
                         local dist = (curHrp.Position - targetPos).Magnitude
                         
-                        -- Record totalDistance once character is FAR from kick zone
-                        -- This means character has actually spawned at brainrot position
-                        if not distanceRecorded and dist > 30 then
-                            totalDistance = dist
-                            distanceRecorded = true
-                            print("[MoronHUB] Kick distance recorded: " .. math.floor(totalDistance) .. " studs (character at brainrot pos)")
-                        end
-                        
-                        -- Calculate percentage of journey completed
-                        local percent = 0
-                        if distanceRecorded and totalDistance > 0 then
-                            local traveled = totalDistance - dist
-                            percent = (traveled / totalDistance) * 100
-                            if percent < 0 then percent = 0 end
-                        end
-                        
-                        -- Deactivate speed after 95% of journey completed
-                        -- OR if distance < 15 studs from kick zone (absolute fallback)
-                        -- Only deactivate if distance was recorded (we know the real distance)
-                        if _speedBoostActive and distanceRecorded and (percent >= 95 or dist < 15) then
-                            pcall(DeactivateSpeedBoost)
-                            S.Status = "Speed off, entering kick zone..."
-                            print("[MoronHUB] Speed OFF at " .. math.floor(percent) .. "% (dist=" .. math.floor(dist) .. ")")
-                        end
-                        
-                        -- Fallback: if distance never recorded but we're very close, still deactivate
-                        if _speedBoostActive and not distanceRecorded and dist < 15 then
-                            pcall(DeactivateSpeedBoost)
-                            S.Status = "Speed off (fallback), entering kick zone..."
-                            print("[MoronHUB] Speed OFF fallback (dist=" .. math.floor(dist) .. ")")
-                        end
+                        -- Speed deactivation is handled by the force speed loop
+                        -- (monitors _speedTargetPos and auto-deactivates at 95%)
                         
                         if dist < 8 then
+                            -- Arrived at player position
+                            if _speedBoostActive then pcall(DeactivateSpeedBoost) end
                             arrived = true
                             break
                         end
