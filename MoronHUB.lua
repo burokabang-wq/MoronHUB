@@ -1868,14 +1868,7 @@ local function SmartFarmLoop()
                     local moveTimeout = tick() + 300 -- 5 minutes for very long kicks
                     local arrived = false
                     
-                    -- First: rotate character to face target
-                    pcall(function()
-                        local dir = (targetPos - hrp.Position)
-                        dir = Vector3.new(dir.X, 0, dir.Z).Unit
-                        hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + dir)
-                    end)
-                    
-                    -- Start with MoveTo
+                    -- Start with MoveTo (NO CFrame manipulation - game detects it as suspicious)
                     hum:MoveTo(targetPos)
                     
                     -- Track position to detect stuck
@@ -1930,29 +1923,17 @@ local function SmartFarmLoop()
                             stuckFrames = 0
                         end
                         
-                        if stuckFrames < 3 then
-                            -- Still moving, keep re-issuing MoveTo
-                            pcall(function() curHum:MoveTo(targetPos) end)
-                        else
-                            -- STUCK! MoveTo cancelled by game.
-                            -- Rotate toward target and simulate W key
-                            pcall(function()
-                                local dir = (targetPos - curHrp.Position)
-                                dir = Vector3.new(dir.X, 0, dir.Z).Unit
-                                curHrp.CFrame = CFrame.new(curHrp.Position, curHrp.Position + dir)
-                            end)
-                            
-                            -- Try VirtualInputManager to simulate W key
+                        -- Keep re-issuing MoveTo (NO CFrame - game detects it as suspicious)
+                        pcall(function() curHum:MoveTo(targetPos) end)
+                        
+                        if stuckFrames >= 3 then
+                            -- STUCK! Try VirtualInputManager to simulate W key
                             if VIM then
                                 pcall(function()
-                                    -- Press W
                                     VIM:SendKeyEvent(true, Enum.KeyCode.W, false, game)
                                 end)
                                 usingVIM = true
                             end
-                            
-                            -- Also try re-issuing MoveTo (might work again after rotation)
-                            pcall(function() curHum:MoveTo(targetPos) end)
                         end
                     end
                     
