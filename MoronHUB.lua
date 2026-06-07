@@ -2195,6 +2195,15 @@ if not parented then pcall(function() SG.Parent = LP:WaitForChild("PlayerGui"); 
 if not parented then warn("[MoronHUB] UI failed"); genv.MoronHUB_Active = false; return end
 
 -- ══════════════════════════════════════════════════════════════
+-- RESPONSIVE UI SCALING
+-- ══════════════════════════════════════════════════════════════
+local Camera = WS.CurrentCamera
+local viewportSize = Camera and Camera.ViewportSize or Vector2.new(1920, 1080)
+-- Scale factor based on screen size (reference: 1920x1080)
+-- Clamp between 0.6 (small screens) and 1.2 (large screens)
+local scaleFactor = math.clamp(math.min(viewportSize.X / 1920, viewportSize.Y / 1080), 0.6, 1.2)
+
+-- ══════════════════════════════════════════════════════════════
 -- ROLL NOTIFICATION SYSTEM (Bottom-Right Professional Toast)
 -- ══════════════════════════════════════════════════════════════
 local NotifContainer = Instance.new("Frame", SG)
@@ -2203,6 +2212,8 @@ NotifContainer.Size = UDim2.new(0, 320, 1, -20)
 NotifContainer.Position = UDim2.new(1, -330, 0, 10)
 NotifContainer.BackgroundTransparency = 1
 NotifContainer.ClipsDescendants = false
+local notifScale = Instance.new("UIScale", NotifContainer)
+notifScale.Scale = scaleFactor
 local notifLayout = Instance.new("UIListLayout", NotifContainer)
 notifLayout.Padding = UDim.new(0, 8)
 notifLayout.SortOrder = Enum.SortOrder.LayoutOrder
@@ -2435,13 +2446,18 @@ ShowRollNotification = function(isGood, brName, mutation, cps, reason)
     end)
 end
 
--- Main Window
+-- Main Window (responsive to screen size)
+-- UIScale handles all proportional scaling - Win uses base size
 local Win = Instance.new("Frame", SG)
 Win.Name = "Win"; Win.Size = UDim2.new(0, 380, 0, 520)
 Win.Position = UDim2.new(0.5, -190, 0.5, -260)
 Win.BackgroundColor3 = Color.Bg; Win.BorderSizePixel = 0
 Instance.new("UICorner", Win).CornerRadius = UDim.new(0, 12)
 Instance.new("UIStroke", Win).Color = Color.Border
+
+-- UIScale scales the entire window and all children proportionally
+local uiScale = Instance.new("UIScale", Win)
+uiScale.Scale = scaleFactor
 
 -- Shadow
 local Shadow = Instance.new("ImageLabel", Win)
