@@ -1806,8 +1806,8 @@ local function SmartFarmLoop()
                 end
                 S.Status = "BAD: " .. best.name .. " (" .. FmtNum(displayCPS) .. "/s) - Running to wave..."
                 
-                -- Show professional notification
-                pcall(function() ShowRollNotification(false, best.name, best.mutation, displayCPS, badDetail) end)
+                -- Show professional notification (non-blocking)
+                task.spawn(function() pcall(function() ShowRollNotification(false, best.name, best.mutation, displayCPS, badDetail) end) end)
                 
                 -- BAD ROLL - Wait for wave to naturally catch us
                 WaitUntilDead()
@@ -1828,11 +1828,11 @@ local function SmartFarmLoop()
                 else
                     goodReason = "CPS " .. FmtNum(goodCPS) .. "/s >= Target " .. FmtNum(S.TargetCPS) .. "/s"
                 end
-                pcall(function() ShowRollNotification(true, goodBr.name, goodBr.mutation, goodCPS, goodReason) end)
+                task.spawn(function() pcall(function() ShowRollNotification(true, goodBr.name, goodBr.mutation, goodCPS, goodReason) end) end)
                 
-                -- Send Discord webhook notification
+                -- Send Discord webhook notification (non-blocking - runs in background)
                 local goodRarity = GetRarity(goodBr.name)
-                pcall(function() SendWebhook(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
+                task.spawn(function() pcall(function() SendWebhook(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end) end)
                 
                 -- Add to good roll history (last 3)
                 pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
