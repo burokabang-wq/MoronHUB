@@ -1502,8 +1502,6 @@ local function ActivateSpeedBoost()
     if _speedBoostActive then return end -- Already active
     _speedBoostActive = true
     
-    local targetSpeed = 190 -- Target WalkSpeed
-    
     -- Wait for character to be fully ready (retry up to 3 seconds - character should already exist)
     local char, hum, hrp
     local waitStart = tick()
@@ -1530,6 +1528,10 @@ local function ActivateSpeedBoost()
     -- Save original WalkSpeed before any modifications
     _origSpeedData._origWalkSpeed = hum.WalkSpeed
     print("[MoronHUB] Speed Boost: Original WalkSpeed saved: " .. tostring(hum.WalkSpeed))
+    
+    -- Target speed = current base speed + 40 (dynamic, not fixed)
+    local targetSpeed = hum.WalkSpeed + 40
+    print("[MoronHUB] Speed Boost: Target = " .. tostring(hum.WalkSpeed) .. " + 40 = " .. tostring(targetSpeed))
     
     -- ═══ TECHNIQUE 1: Disable WalkSpeed monitor connections ═══
     pcall(function()
