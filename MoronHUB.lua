@@ -1934,17 +1934,42 @@ local function SmartFarmLoop()
             S.LastRoll = best.name .. " [" .. best.mutation .. "]"
             S.LastCPS = FmtNum(displayCPS) .. "/s"
             
+            -- Build summary of ALL brainrots obtained in this kick
+            local allBrSummary = ""
+            local allBrDetails = {}
+            for i, br in ipairs(brainrots) do
+                local brCps = CalcCPS(br.name, br.mutation)
+                local brRar = GetRarity(br.name)
+                local status = "BAD"
+                -- Check if this specific brainrot passes filter
+                if S.RarityFilter and S.RarityFilter ~= "Off" then
+                    for rar in string.gmatch(S.RarityFilter, "[^,]+") do
+                        if rar == brRar then status = "GOOD (Rarity)" break end
+                    end
+                end
+                if status == "BAD" and brCps >= S.TargetCPS then
+                    status = "GOOD (CPS)"
+                end
+                table.insert(allBrDetails, {
+                    name = br.name, mutation = br.mutation,
+                    cps = brCps, rarity = brRar, status = status
+                })
+                allBrSummary = allBrSummary .. i .. ". " .. br.name .. " [" .. brRar .. "] " .. FmtNum(brCps) .. "/s (" .. status .. ")\n"
+            end
+            
+            -- Log all brainrots obtained
+            print("[MoronHUB] === KICK RESULTS (" .. #brainrots .. " brainrot" .. (#brainrots > 1 and "s" or "") .. ") ===")
+            for _, d in ipairs(allBrDetails) do
+                print("[MoronHUB]   " .. d.name .. " [" .. d.rarity .. "] " .. FmtNum(d.cps) .. "/s - " .. d.status)
+            end
+            
             if not meets then
                 -- ═══ BAD ROLL - CPS not enough & rarity not matched ═══
                 S.BadCount = S.BadCount + 1
-                local badDetail = "CPS " .. FmtNum(displayCPS) .. "/s < Target " .. FmtNum(S.TargetCPS) .. "/s"
-                if S.RarityFilter ~= "Off" then
-                    local brRarity = GetRarity(best.name)
-                    badDetail = badDetail .. " | Rarity: " .. brRarity .. " (not in filter)"
-                end
-                S.Status = "BAD: " .. best.name .. " (" .. FmtNum(displayCPS) .. "/s) - Running to wave..."
+                local badDetail = #brainrots .. " brainrot(s) obtained - none passed filter:\n" .. allBrSummary
+                S.Status = "BAD: " .. #brainrots .. " brainrot(s) - none passed filter"
                 
-                -- Show professional notification (non-blocking)
+                -- Show professional notification with ALL brainrots info (non-blocking)
                 task.spawn(function() pcall(function() ShowRollNotification(false, best.name, best.mutation, displayCPS, badDetail) end) end)
                 
                 -- BAD ROLL - Wait for wave to naturally catch us
@@ -1958,7 +1983,7 @@ local function SmartFarmLoop()
                 S.GoodCount = S.GoodCount + 1
                 S.Status = "GOOD! " .. goodBr.name .. " (" .. FmtNum(goodCPS) .. "/s) - Running to kick zone!"
                 
-                -- Show professional notification
+                -- Show professional notification with ALL brainrots info
                 local goodReason
                 if matchType == "RARITY" then
                     local brRarity = GetRarity(goodBr.name)
@@ -1966,11 +1991,15 @@ local function SmartFarmLoop()
                 else
                     goodReason = "CPS " .. FmtNum(goodCPS) .. "/s >= Target " .. FmtNum(S.TargetCPS) .. "/s"
                 end
+                if #brainrots > 1 then
+                    goodReason = goodReason .. "\n\nAll " .. #brainrots .. " brainrot(s):\n" .. allBrSummary
+                end
                 task.spawn(function() pcall(function() ShowRollNotification(true, goodBr.name, goodBr.mutation, goodCPS, goodReason) end) end)
                 
-                -- Send Discord webhook notification (non-blocking - runs in background)
+                -- Send Discord webhook with ALL brainrots info (non-blocking)
                 local goodRarity = GetRarity(goodBr.name)
-                task.spawn(function() pcall(function() SendWebhook(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end) end)
+                local webhookReason = goodReason
+                task.spawn(function() pcall(function() SendWebhook(goodBr.name, goodBr.mutation, goodCPS, goodRarity, webhookReason) end) end)
                 
                 -- Add to good roll history (last 3)
                 pcall(function() AddGoodRollHistory(goodBr.name, goodBr.mutation, goodCPS, goodRarity, goodReason) end)
