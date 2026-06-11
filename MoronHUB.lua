@@ -498,13 +498,11 @@ local function TeleportToKickZone()
     local targetPos = kr.Position + Vector3.new(0, 3, 0)
     hum:MoveTo(targetPos)
     -- Wait until arrived (within 8 studs) or timeout 15s
-    -- Spam DoKick while walking - server ignores if not ready
     local moveStart = tick()
     while tick() - moveStart < 15 do
         local dist = (hrp.Position - targetPos).Magnitude
         if dist < 8 then break end
         hum:MoveTo(targetPos) -- re-issue MoveTo (game cancels after ~8s)
-        DoKick() -- spam kick while approaching
         task.wait(0.5)
     end
     return true
@@ -1809,26 +1807,21 @@ local function SmartFarmLoop()
             end
             task.wait(0.5)
             
-            -- STEP 3: Spam kick until it goes through (no need to wait for CanKick)
-            S.Status = "Kicking..."
+            -- STEP 3: Aggressive CanKick detection (check every 0.1s) then kick immediately
+            S.Status = "Waiting kick ready..."
             local kickTimeout = tick() + 15
-            local kicked = false
-            while tick() < kickTimeout and S.SmartFarm and S.Running do
-                DoKick()
-                task.wait(0.3)
-                -- Check if kick went through (InGame attribute set = became brainrot)
-                local inGame = LP:GetAttribute("InGame") or ""
-                if inGame ~= "" then
-                    kicked = true
-                    break
-                end
+            while not CanKick() and tick() < kickTimeout and S.SmartFarm and S.Running do
+                task.wait(0.1) -- aggressive check every 0.1s
             end
             
-            if not kicked then
+            if not CanKick() then
                 S.Status = "Kick not ready, retrying..."
                 task.wait(2)
                 return
             end
+            
+            -- Kick immediately without any delay
+            DoKick()
             
             -- STEP 4: Kick the block!
             -- Save player position and character BEFORE becoming brainrot
