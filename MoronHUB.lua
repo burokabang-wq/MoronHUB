@@ -498,11 +498,13 @@ local function TeleportToKickZone()
     local targetPos = kr.Position + Vector3.new(0, 3, 0)
     hum:MoveTo(targetPos)
     -- Wait until arrived (within 8 studs) or timeout 15s
+    -- Spam DoKick while walking - server ignores if not ready
     local moveStart = tick()
     while tick() - moveStart < 15 do
         local dist = (hrp.Position - targetPos).Magnitude
         if dist < 8 then break end
         hum:MoveTo(targetPos) -- re-issue MoveTo (game cancels after ~8s)
+        DoKick() -- spam kick while approaching
         task.wait(0.5)
     end
     return true
@@ -1807,14 +1809,22 @@ local function SmartFarmLoop()
             end
             task.wait(0.5)
             
-            -- STEP 3: Wait until KickButton is visible (confirms ready to kick)
-            S.Status = "Waiting kick ready..."
+            -- STEP 3: Spam kick until it goes through (no need to wait for CanKick)
+            S.Status = "Kicking..."
             local kickTimeout = tick() + 15
-            while not CanKick() and tick() < kickTimeout and S.SmartFarm and S.Running do
-                task.wait(1)
+            local kicked = false
+            while tick() < kickTimeout and S.SmartFarm and S.Running do
+                DoKick()
+                task.wait(0.3)
+                -- Check if kick went through (InGame attribute set = became brainrot)
+                local inGame = LP:GetAttribute("InGame") or ""
+                if inGame ~= "" then
+                    kicked = true
+                    break
+                end
             end
             
-            if not CanKick() then
+            if not kicked then
                 S.Status = "Kick not ready, retrying..."
                 task.wait(2)
                 return
