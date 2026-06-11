@@ -497,13 +497,15 @@ local function TeleportToKickZone()
     -- Walk to kick zone instead of teleport (more natural)
     local targetPos = kr.Position + Vector3.new(0, 3, 0)
     hum:MoveTo(targetPos)
-    -- Wait until arrived (within 8 studs) or timeout 15s
+    -- Wait until arrived OR CanKick becomes true (whichever first)
     local moveStart = tick()
     while tick() - moveStart < 15 do
+        -- If kick button already visible = we're at kick zone, break immediately
+        if CanKick() then break end
         local dist = (hrp.Position - targetPos).Magnitude
         if dist < 8 then break end
         hum:MoveTo(targetPos) -- re-issue MoveTo (game cancels after ~8s)
-        task.wait(0.5)
+        task.wait(0.3)
     end
     return true
 end
