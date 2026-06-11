@@ -492,7 +492,19 @@ local function TeleportToKickZone()
     if not kr then return false end
     local hrp = GetHRP()
     if not hrp then return false end
-    hrp.CFrame = kr.CFrame * CFrame.new(0, 3, 0)
+    local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    -- Walk to kick zone instead of teleport (more natural)
+    local targetPos = kr.Position + Vector3.new(0, 3, 0)
+    hum:MoveTo(targetPos)
+    -- Wait until arrived (within 8 studs) or timeout 15s
+    local moveStart = tick()
+    while tick() - moveStart < 15 do
+        local dist = (hrp.Position - targetPos).Magnitude
+        if dist < 8 then break end
+        hum:MoveTo(targetPos) -- re-issue MoveTo (game cancels after ~8s)
+        task.wait(0.5)
+    end
     return true
 end
 
@@ -1785,27 +1797,20 @@ local function SmartFarmLoop()
                 return
             end
             
-            -- STEP 2b: Teleport to kick zone (CFrame - works in background)
-            S.Status = "Going to kick zone..."
-            local teleported = false
-            for attempt = 1, 5 do
-                teleported = TeleportToKickZone()
-                if teleported then break end
-                task.wait(1)
-            end
-            if not teleported then
+            -- STEP 2b: Walk to kick zone (MoveTo - natural movement)
+            S.Status = "Walking to kick zone..."
+            local arrived = TeleportToKickZone()
+            if not arrived then
                 S.Status = "ERROR: KickReady not found!"
                 task.wait(3)
                 return
             end
-            task.wait(1)
+            task.wait(0.5)
             
             -- STEP 3: Wait until KickButton is visible (confirms ready to kick)
             S.Status = "Waiting kick ready..."
             local kickTimeout = tick() + 15
             while not CanKick() and tick() < kickTimeout and S.SmartFarm and S.Running do
-                -- Keep teleporting to kick zone (CFrame based, no MoveTo)
-                TeleportToKickZone()
                 task.wait(1)
             end
             
